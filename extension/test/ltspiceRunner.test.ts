@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import {
+  decodeLog,
   findLtspice,
   parseLtspiceLog,
   prepareSimulationAsc,
@@ -117,3 +118,11 @@ test('runLtspiceSimulation handles cancellation', async () => {
   assert.equal(result.success, false);
   assert.equal(result.error, 'Simulation cancelled');
 });
+
+test('decodeLog reads UTF-8 and UTF-16LE logs', () => {
+  const text = 'vmax: MAX(V(out))=0.86 FROM 0 TO 0.005';
+  assert.equal(decodeLog(Buffer.from(text, 'utf8')), text);
+  assert.equal(decodeLog(Buffer.from(text, 'utf16le')), text);
+  assert.equal(decodeLog(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')])), text);
+});
+

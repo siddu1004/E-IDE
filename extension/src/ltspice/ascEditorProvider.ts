@@ -83,7 +83,9 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
       if (abortController) {
         abortController.abort();
       }
-      abortController = new AbortController();
+      // Keep this run's own controller: abortController may point at a newer run by the time we resume.
+      const controller = new AbortController();
+      abortController = controller;
 
       webview.postMessage({ type: 'simStart' });
 
@@ -93,10 +95,10 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
           ascPath: document.uri.fsPath,
           ascContent: document.getText(),
           timeoutMs: timeoutSec * 1000,
-          signal: abortController.signal,
+          signal: controller.signal,
         });
 
-        if (abortController.signal.aborted) return;
+        if (controller.signal.aborted) return;
 
         let bannerText = '';
         if (result.success) {

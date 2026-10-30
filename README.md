@@ -24,7 +24,9 @@ Try it:
 2. Open the `extension` folder and press F5. A development window opens with `samples/`.
 3. Open `rc_lowpass.asc`, then change a value in the table or edit the file as text.
 
-Next milestone (simulation runner, waveforms, live re-run): [docs/handoff/antigravity-prompt.md](docs/handoff/antigravity-prompt.md).
+Milestone 1 is done: LTspice simulation runner, waveform panel, live re-run, and agent tools.
+
+Next milestone (KiCad editor and simulate from KiCad): [docs/handoff/antigravity-prompt-m2-kicad.md](docs/handoff/antigravity-prompt-m2-kicad.md).
 
 Background research: see [docs/research/electrical-ide-feasibility.md](docs/research/electrical-ide-feasibility.md) for feasibility, existing integrations, licensing constraints, and the MVP plan.
 

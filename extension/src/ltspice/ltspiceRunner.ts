@@ -88,6 +88,12 @@ export function findLtspice(customPath?: string, env: Record<string, string | un
   return undefined;
 }
 
+// LTspice 24+ writes UTF-8 logs; LTspice XVII writes UTF-16LE, with or without a BOM.
+export function decodeLog(buf: Buffer): string {
+  const utf16 = (buf[0] === 0xff && buf[1] === 0xfe) || (buf.length > 1 && buf[1] === 0 && buf[0] !== 0);
+  return buf.toString(utf16 ? 'utf16le' : 'utf8').replace(/^﻿/, '');
+}
+
 // Parses LTspice log text for errors, warnings, measurements, and elapsed time
 export function parseLtspiceLog(logContent: string): LtspiceLogResult {
   const errors: string[] = [];
@@ -321,8 +327,7 @@ export async function runLtspiceSimulation(options: RunOptions): Promise<Simulat
     // Read log file if present
     let logResult: LtspiceLogResult = { errors: [], warnings: [], measurements: {}, rawLog: '' };
     if (fs.existsSync(tempLog)) {
-      const logContent = fs.readFileSync(tempLog, 'utf8');
-      logResult = parseLtspiceLog(logContent);
+      logResult = parseLtspiceLog(decodeLog(fs.readFileSync(tempLog)));
     }
 
     // Read raw file if present
