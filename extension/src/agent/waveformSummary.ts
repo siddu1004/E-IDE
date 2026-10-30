@@ -195,14 +195,20 @@ export function analyzeAc(
   };
 }
 
+export type SeriesData =
+  | number[]
+  | Float64Array
+  | { re: number[] | Float64Array; im: number[] | Float64Array };
+
 export function summarizeSimulationData(params: {
   plotName: string;
-  x: number[];
-  series: Record<string, number[] | { re: number[]; im: number[] }>;
+  x: number[] | Float64Array;
+  series: Record<string, SeriesData>;
   measurements?: Record<string, number>;
 }): CompactSimulationSummary {
-  const { plotName, x, series, measurements } = params;
-  const isAc = plotName.toLowerCase().includes('ac') || Object.values(series).some((s) => !Array.isArray(s));
+  const { plotName, series, measurements } = params;
+  const x = Array.from(params.x);
+  const isAc = plotName.toLowerCase().includes('ac') || Object.values(series).some((s) => !Array.isArray(s) && !(s instanceof Float64Array));
   const isTransient = plotName.toLowerCase().includes('transient') || !isAc;
 
   const signals: SignalSummary[] = [];
@@ -229,11 +235,12 @@ export function summarizeSimulationData(params: {
   }
 
   for (const [name, data] of Object.entries(series)) {
-    if (Array.isArray(data)) {
+    if (Array.isArray(data) || data instanceof Float64Array) {
       if (data.length === 0) continue;
       let min = data[0];
       let max = data[0];
-      for (const v of data) {
+      for (let i = 0; i < data.length; i++) {
+        const v = data[i];
         if (v < min) min = v;
         if (v > max) max = v;
       }
@@ -276,7 +283,7 @@ export function summarizeSimulationData(params: {
 
   if (primarySignal && series[primarySignal]) {
     const primaryData = series[primarySignal];
-    if (isAc && !Array.isArray(primaryData)) {
+    if (isAc && !Array.isArray(primaryData) && !(primaryData instanceof Float64Array)) {
       const re = primaryData.re;
       const im = primaryData.im;
       const magDb: number[] = new Array(re.length);
@@ -286,8 +293,8 @@ export function summarizeSimulationData(params: {
         phaseDeg[i] = (Math.atan2(im[i], re[i]) * 180) / Math.PI;
       }
       ac = analyzeAc(x, magDb, phaseDeg, primarySignal);
-    } else if (isTransient && Array.isArray(primaryData)) {
-      transient = analyzeTransient(x, primaryData, primarySignal);
+    } else if (isTransient && (Array.isArray(primaryData) || primaryData instanceof Float64Array)) {
+      transient = analyzeTransient(x, Array.from(primaryData), primarySignal);
     }
   }
 

@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { activeSimulationWebviews } from '../agent/tools';
+import { activeSimulationWebviews, registerEditorWebview, undoAgentChange } from '../agent/tools';
 import { MatlabBridge, BridgeStatus } from '../matlab/matlabBridge';
 import { TestHook } from '../testHook';
 import { diffSlxModels, parseSlx, SlxModel } from './slxParser';
@@ -94,10 +94,10 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
     }
 
     // Register webview for live agent updates
-    activeSimulationWebviews.set(fsPath.toLowerCase(), webview);
+    const webviewReg = registerEditorWebview(fsPath, webview);
     panel.onDidDispose(() => {
       isDisposed = true;
-      activeSimulationWebviews.delete(fsPath.toLowerCase());
+      webviewReg.dispose();
       if (SlxEditorProvider.activeEditor === editorController) {
         SlxEditorProvider.activeEditor = undefined;
       }
@@ -324,6 +324,10 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
           break;
 
+        case 'undoAgent':
+          await undoAgentChange(fsPath);
+          break;
+
         case 'snapshotResult':
           if (process.env.EIDE_TEST === '1' && msg.dataUrl) {
             const outDir = path.join(os.tmpdir(), 'eide_screenshots');
@@ -364,6 +368,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
       <span id="model-name" class="model-name">Simulink Model</span>
       <span id="status-badge" class="status-badge off">MATLAB: off</span>
     </div>
+    <div id="banner"></div>
     <div class="actions">
       <label>
         Stop Time:

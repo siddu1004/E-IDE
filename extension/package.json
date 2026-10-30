@@ -83,11 +83,24 @@
       {
         "command": "eide.toggleMatlabBridge",
         "title": "E-IDE: Toggle MATLAB Session"
+      },
+      {
+        "command": "eide.copyMcpConfig",
+        "title": "E-IDE: Copy MCP config"
+      },
+      {
+        "command": "eide.undoAgentChange",
+        "title": "E-IDE: Undo Agent Change"
       }
     ],
     "configuration": {
       "title": "E-IDE",
       "properties": {
+        "eide.agent.requireApproval": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require user confirmation before applying AI agent schematic or model modifications."
+        },
         "eide.ltspice.path": {
           "type": "string",
           "default": "",

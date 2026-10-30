@@ -7,6 +7,7 @@ import { TestHook } from '../testHook';
 import { findKicadCli, runErc } from './kicadCli';
 import { simulateKicadSchematic } from './kicadSimulation';
 import { diffSchematics, KicadSchematic, parseKicadSch, propertyEdit } from './schParser';
+import { registerEditorWebview, undoAgentChange } from '../agent/tools';
 
 export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
   static readonly viewType = 'eide.kicadSchematic';
@@ -63,6 +64,8 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
         await handleMessage(msg);
       }
     );
+
+    const webviewReg = registerEditorWebview(document.uri.fsPath, webview);
 
     const safePostMessage = (msg: any) => {
       if (isDisposed) return;
@@ -314,6 +317,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
 
     panel.onDidDispose(() => {
       isDisposed = true;
+      webviewReg.dispose();
       sub.dispose();
       clearTimeout(autoSimTimer);
       if (abortController) abortController.abort();
@@ -344,6 +348,9 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
           break;
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+          break;
+        case 'undoAgent':
+          await undoAgentChange(document.uri.fsPath);
           break;
         case 'snapshotResult':
           if (process.env.EIDE_TEST === '1' && msg.dataUrl) {

@@ -21,10 +21,65 @@ header {
   transition: opacity 0.3s;
   font-family: var(--vscode-editor-font-family);
   font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 #banner.visible {
   opacity: 1;
+}
+
+.banner-undo-btn, .history-undo-btn {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 2px;
+  cursor: pointer;
+  border: none;
+}
+
+.banner-undo-btn:hover, .history-undo-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.agent-history-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--vscode-panel-border, #333);
+  padding-top: 8px;
+}
+
+.agent-history-section.hidden {
+  display: none;
+}
+
+.agent-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+  font-size: 11px;
+}
+
+.agent-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.2));
+  gap: 6px;
+}
+
+.agent-history-desc {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-history-time {
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 10px;
 }
 
 .header-actions {

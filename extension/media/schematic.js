@@ -369,6 +369,61 @@
     bannerTimer = setTimeout(() => banner.classList.remove('visible'), 5000);
   }
 
+  function showAgentBanner(text, hasUndo) {
+    banner.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = text;
+    banner.appendChild(span);
+
+    if (hasUndo) {
+      const undoBtn = document.createElement('button');
+      undoBtn.textContent = 'Undo';
+      undoBtn.className = 'banner-undo-btn';
+      undoBtn.onclick = () => {
+        vscode.postMessage({ type: 'undoAgent' });
+      };
+      banner.appendChild(undoBtn);
+    }
+
+    banner.classList.add('visible');
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => banner.classList.remove('visible'), 10000);
+  }
+
+  function updateHistoryPanel(items) {
+    let section = document.getElementById('agent-history-section');
+    if (!section) {
+      const aside = document.querySelector('aside');
+      if (aside) {
+        section = document.createElement('div');
+        section.id = 'agent-history-section';
+        section.className = 'agent-history-section';
+        section.innerHTML = '<h2>Agent History</h2><ul id="agent-history-list" class="agent-history-list"></ul>';
+        aside.appendChild(section);
+      }
+    }
+    const list = document.getElementById('agent-history-list');
+    if (!list || !section) return;
+
+    if (!items || items.length === 0) {
+      section.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    section.classList.remove('hidden');
+    list.innerHTML = '';
+    items.forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'agent-history-item';
+      li.innerHTML = `<span class="agent-history-desc" title="${item.description}">${item.description}</span><span class="agent-history-time">${item.time}</span><button class="history-undo-btn">Undo</button>`;
+      li.querySelector('button').onclick = () => {
+        vscode.postMessage({ type: 'undoAgent' });
+      };
+      list.appendChild(li);
+    });
+  }
+
   function showBanner(changes) {
     const parts = [];
     if (changes.symbols?.length) parts.push(`changed ${changes.symbols.join(', ')}`);
@@ -413,6 +468,15 @@
         runBtn.textContent = 'Run Simulation';
         delete runBtn.dataset.running;
         showBannerText(msg.error || 'Simulation failed');
+        break;
+
+      case 'agentBanner':
+        showAgentBanner(msg.text, msg.hasUndo);
+        if (msg.history) updateHistoryPanel(msg.history);
+        break;
+
+      case 'agentHistoryUpdate':
+        if (msg.history) updateHistoryPanel(msg.history);
         break;
 
       case 'error':

@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { TestHook } from '../testHook';
 import { AscSchematic, diffSchematics, parseAsc, symbolAttrEdit } from './ascParser';
 import { findLtspice, runLtspiceSimulation, SimulationRunResult } from './ltspiceRunner';
+import { registerEditorWebview, undoAgentChange } from '../agent/tools';
 
 // Visual editor for .asc files. The text document stays the source of truth,
 // so edits from the user, the agent, or LTspice itself all flow through it.
@@ -44,6 +45,8 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
         await handleMessage(msg);
       }
     );
+
+    const webviewReg = registerEditorWebview(document.uri.fsPath, webview);
 
     const safePostMessage = (msg: any) => {
       if (isDisposed) return;
@@ -225,6 +228,7 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
 
     panel.onDidDispose(() => {
       isDisposed = true;
+      webviewReg.dispose();
       sub.dispose();
       clearTimeout(autoRunTimer);
       if (abortController) abortController.abort();
@@ -256,6 +260,9 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
           break;
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+          break;
+        case 'undoAgent':
+          await undoAgentChange(document.uri.fsPath);
           break;
         case 'snapshotResult':
           if (process.env.EIDE_TEST === '1' && msg.dataUrl) {

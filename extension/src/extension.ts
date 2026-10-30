@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { setMatlabBridge } from './agent/tools';
+import { EidMcpServer } from './agent/mcpServer';
+import { listOpenDesigns, setMatlabBridge, undoAgentChange } from './agent/tools';
 import { exportSpiceNetlist, findKicadCli } from './kicad/kicadCli';
 import { KicadEditorProvider } from './kicad/schEditorProvider';
 import { AscEditorProvider } from './ltspice/ascEditorProvider';
@@ -10,6 +11,7 @@ import { MatlabScriptRunner } from './matlab/matlabScriptRunner';
 import { SlxEditorProvider } from './simulink/slxEditorProvider';
 
 let activeMatlabBridge: MatlabBridge | undefined;
+let activeMcpServer: EidMcpServer | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   // 1. Editors
@@ -30,6 +32,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   const slxProvider = new SlxEditorProvider(context, bridge);
   const scriptRunner = new MatlabScriptRunner(context, bridge);
+
+  // 3. MCP Server inside extension
+  const mcpServer = new EidMcpServer(context);
+  activeMcpServer = mcpServer;
+  mcpServer.start().catch((err) => {
+    vscode.window.showErrorMessage(`Failed to start E-IDE MCP server: ${err.message}`);
+  });
 
   // 3. Status Bar Item for MATLAB
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -159,11 +168,33 @@ export function activate(context: vscode.ExtensionContext) {
       } else {
         vscode.window.showErrorMessage(`Netlist export failed: ${res.error}`);
       }
+    }),
+    vscode.commands.registerCommand('eide.copyMcpConfig', async () => {
+      if (activeMcpServer) {
+        const configJson = activeMcpServer.getMcpConfigJson();
+        await vscode.env.clipboard.writeText(configJson);
+        vscode.window.showInformationMessage(
+          'E-IDE MCP config copied to clipboard! Paste it into Antigravity mcp_config.json.'
+        );
+      }
+    }),
+    vscode.commands.registerCommand('eide.undoAgentChange', async (filePath?: string) => {
+      let targetPath = filePath;
+      if (!targetPath) {
+        const openDesigns = listOpenDesigns();
+        if (openDesigns.length > 0) targetPath = openDesigns[0].path;
+      }
+      if (targetPath) {
+        await undoAgentChange(targetPath);
+      }
     })
   );
 }
 
 export function deactivate() {
+  if (activeMcpServer) {
+    activeMcpServer.stop();
+  }
   if (activeMatlabBridge) {
     activeMatlabBridge.stop();
   }
