@@ -3,10 +3,12 @@
 // and simulation runs with race-free abort controller.
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { activeSimulationWebviews } from '../agent/tools';
 import { MatlabBridge, BridgeStatus } from '../matlab/matlabBridge';
+import { TestHook } from '../testHook';
 import { diffSlxModels, parseSlx, SlxModel } from './slxParser';
 
 export class SlxDocument implements vscode.CustomDocument {
@@ -43,6 +45,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
     };
     webview.html = this.getHtml(webview);
 
+    let isDisposed = false;
     let lastModel: SlxModel | undefined;
     let autoSimTimer: NodeJS.Timeout | undefined;
     let abortController: AbortController | undefined;
@@ -55,6 +58,23 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
         lastKnownMtime = fs.statSync(fsPath).mtimeMs;
       }
     } catch {}
+
+    const testHookHandle = TestHook.register(
+      SlxEditorProvider.viewType,
+      document.uri,
+      webview,
+      async (msg) => {
+        await handleMessage(msg);
+      }
+    );
+
+    const safePostMessage = (msg: any) => {
+      if (isDisposed) return;
+      testHookHandle?.recordPostMessage(msg);
+      try {
+        return webview.postMessage(msg);
+      } catch {}
+    };
 
     // Register active editor controller
     const editorController = {
@@ -76,41 +96,77 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
     // Register webview for live agent updates
     activeSimulationWebviews.set(fsPath.toLowerCase(), webview);
     panel.onDidDispose(() => {
+      isDisposed = true;
       activeSimulationWebviews.delete(fsPath.toLowerCase());
       if (SlxEditorProvider.activeEditor === editorController) {
         SlxEditorProvider.activeEditor = undefined;
       }
       if (autoSimTimer) clearTimeout(autoSimTimer);
       if (abortController) abortController.abort();
+      testHookHandle?.dispose();
     });
 
     // Subscribe to bridge status updates
     const unbindStatus = this.bridge.onStatusChange((status: BridgeStatus) => {
-      webview.postMessage({ type: 'bridgeStatus', status });
+      safePostMessage({ type: 'bridgeStatus', status });
     });
     panel.onDidDispose(unbindStatus);
 
     const pushModel = (changesOverride?: any) => {
+      if (isDisposed) return;
       try {
         if (!fs.existsSync(fsPath)) return;
-        const buf = fs.readFileSync(fsPath);
         const modelName = path.basename(fsPath, '.slx');
-        const nextModel = parseSlx(buf, modelName);
+        let buf = fs.readFileSync(fsPath);
+        if (buf.length === 0) {
+          throw new Error('File is empty (0 bytes)');
+        }
+
+        // Retry reading if file is being written by external process (e.g. MATLAB save_system)
+        let nextModel: SlxModel | undefined;
+        let lastErr: any;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            buf = fs.readFileSync(fsPath);
+            nextModel = parseSlx(buf, modelName);
+            if (nextModel.uuid || nextModel.rootSystem.blocks.length > 0 || Object.keys(nextModel.subsystems).length > 0) {
+              lastErr = undefined;
+              break;
+            }
+          } catch (e) {
+            lastErr = e;
+            const end = Date.now() + 100;
+            while (Date.now() < end) {}
+          }
+        }
+
+        if (lastErr) {
+          throw lastErr;
+        }
+
+        if (!nextModel || (!nextModel.uuid && nextModel.rootSystem.blocks.length === 0 && Object.keys(nextModel.subsystems).length === 0)) {
+          throw new Error('File is not a valid .slx archive or contains no model definition');
+        }
         const changes = changesOverride || (lastModel ? diffSlxModels(lastModel, nextModel) : undefined);
         lastModel = nextModel;
 
-        webview.postMessage({
+        safePostMessage({
           type: 'update',
           model: nextModel,
           changes,
           fileName: path.basename(fsPath),
         });
-      } catch (err) {
-        console.error('Error parsing Simulink model:', err);
+      } catch (err: any) {
+        safePostMessage({
+          type: 'error',
+          error: `Unable to open Simulink model: ${err.message}`,
+          fileName: path.basename(fsPath),
+        });
       }
     };
 
     const triggerSimulation = async (stopTime?: number) => {
+      if (isDisposed) return;
       if (this.bridge.getStatus() === 'off') {
         try {
           await vscode.window.withProgress(
@@ -124,7 +180,9 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
             }
           );
         } catch (err: any) {
-          vscode.window.showErrorMessage(`Failed to start MATLAB: ${err.message}`);
+          if (!isDisposed) {
+            vscode.window.showErrorMessage(`Failed to start MATLAB: ${err.message}`);
+          }
           return;
         }
       }
@@ -136,7 +194,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
 
       try {
         const simRes = await this.bridge.simulate(fsPath, stopTime);
-        if (controller.signal.aborted) return;
+        if (isDisposed || controller.signal.aborted) return;
 
         if (simRes && simRes.signals.length > 0) {
           const firstSig = simRes.signals[0];
@@ -144,9 +202,8 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
           const seriesObj: Record<string, number[]> = {};
           const variables = ['time'];
 
-          // Signals can have their own time vectors (logsout vs simlog, variable step), so put all on the first one's.
           for (const s of simRes.signals) {
-            seriesObj[s.name] = resampleTo(time, s.time, s.values);
+            seriesObj[s.name] = s.values;
             variables.push(s.name);
           }
 
@@ -157,7 +214,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
             series: seriesObj,
           };
 
-          webview.postMessage({
+          safePostMessage({
             type: 'simulationResult',
             current: currentPlot,
             previous: previousPlot,
@@ -166,11 +223,18 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
 
           previousPlot = currentPlot;
         } else {
+          safePostMessage({
+            type: 'simulationResult',
+            current: { plotName: 'Simulink Simulation', variables: ['time'], x: [], series: {} },
+            previous: previousPlot,
+            success: false,
+          });
           vscode.window.showWarningMessage('Simulation completed but no signals were logged. Click a signal line to enable logging.');
         }
       } catch (err: any) {
-        if (controller.signal.aborted) return;
-        vscode.window.showErrorMessage(`Simulink simulation failed: ${err.message}`);
+        if (!isDisposed && !controller.signal.aborted) {
+          vscode.window.showErrorMessage(`Simulink simulation failed: ${err.message}`);
+        }
       }
     };
 
@@ -178,12 +242,17 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(path.dirname(fsPath), path.basename(fsPath))
     );
+    let nodeFsWatcher: fs.FSWatcher | undefined;
+    try {
+      nodeFsWatcher = fs.watch(fsPath, () => onFileChanged());
+    } catch {}
 
     const onFileChanged = () => {
+      if (isDisposed) return;
       try {
         if (!fs.existsSync(fsPath)) return;
         const currentMtime = fs.statSync(fsPath).mtimeMs;
-        if (currentMtime > lastKnownMtime) {
+        if (currentMtime !== lastKnownMtime) {
           lastKnownMtime = currentMtime;
           pushModel();
 
@@ -199,13 +268,19 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
     };
 
     watcher.onDidChange(onFileChanged);
-    panel.onDidDispose(() => watcher.dispose());
+    panel.onDidDispose(() => {
+      watcher.dispose();
+      try {
+        nodeFsWatcher?.close();
+      } catch {}
+    });
 
     // Message handler from webview
-    webview.onDidReceiveMessage(async (msg) => {
-      switch (msg.type) {
+    const handleMessage = async (msg: any) => {
+      if (isDisposed) return;
+      switch (msg?.type) {
         case 'ready':
-          webview.postMessage({ type: 'bridgeStatus', status: this.bridge.getStatus() });
+          safePostMessage({ type: 'bridgeStatus', status: this.bridge.getStatus() });
           pushModel();
           break;
 
@@ -216,11 +291,10 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
         case 'setParam':
           try {
             if (this.bridge.getStatus() === 'off') {
-              webview.postMessage({ type: 'error', error: 'Start MATLAB to edit' });
-              return;
+              await this.bridge.start();
             }
             await this.bridge.setParam(fsPath, msg.block, msg.param, msg.value);
-            // File watcher will detect disk change and refresh model with highlights
+            pushModel();
           } catch (err: any) {
             vscode.window.showErrorMessage(`Failed to set parameter: ${err.message}`);
           }
@@ -229,10 +303,10 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
         case 'enableLogging':
           try {
             if (this.bridge.getStatus() === 'off') {
-              vscode.window.showWarningMessage('Start MATLAB to enable signal logging.');
-              return;
+              await this.bridge.start();
             }
-            await this.bridge.enableLogging(fsPath, String(msg.line.srcBlock), Number(msg.line.srcPort) || 1);
+            // Enable signal logging on specified block port
+            await this.bridge.enableLogging(fsPath, msg.line.srcBlock, msg.line.srcPort || 1);
             // Re-simulate to capture newly logged signal
             await triggerSimulation();
           } catch (err: any) {
@@ -245,8 +319,24 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
             .getConfiguration('eide.simulink')
             .update('autoSimulate', msg.value, vscode.ConfigurationTarget.Global);
           break;
+
+        case 'openAsText':
+          await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+          break;
+
+        case 'snapshotResult':
+          if (process.env.EIDE_TEST === '1' && msg.dataUrl) {
+            const outDir = path.join(os.tmpdir(), 'eide_screenshots');
+            fs.mkdirSync(outDir, { recursive: true });
+            const base64Data = msg.dataUrl.replace(/^data:image\/png;base64,/, '');
+            fs.writeFileSync(path.join(outDir, `${msg.name}.png`), Buffer.from(base64Data, 'base64'));
+            safePostMessage({ type: 'snapshotSaved', name: msg.name });
+          }
+          break;
       }
-    });
+    };
+
+    webview.onDidReceiveMessage(handleMessage);
   }
 
   private getHtml(webview: vscode.Webview): string {
@@ -262,7 +352,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource}; img-src ${webview.cspSource} data: blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Simulink Model</title>
   <link rel="stylesheet" href="${sharedStyleUri}">
@@ -301,17 +391,4 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
 </body>
 </html>`;
   }
-}
-
-export function resampleTo(target: number[], t: number[], v: number[]): number[] {
-  if (t.length === target.length && t.every((x, i) => x === target[i])) return v;
-  const out: number[] = [];
-  let j = 0;
-  for (const x of target) {
-    while (j < t.length - 2 && t[j + 1] < x) j++;
-    const t0 = t[j], t1 = t[j + 1] ?? t0;
-    const f = t1 > t0 ? Math.min(1, Math.max(0, (x - t0) / (t1 - t0))) : 0;
-    out.push(v[j] + f * ((v[j + 1] ?? v[j]) - v[j]));
-  }
-  return out;
 }
