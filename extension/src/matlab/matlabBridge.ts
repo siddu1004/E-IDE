@@ -336,10 +336,10 @@ export class MatlabBridge {
     };
     this.activeRequest = reqObj;
 
-    const effectiveToken =
-      (next.args as any)?._tokenOverride !== undefined
-        ? (next.args as any)._tokenOverride
-        : this.token;
+    // Integration tests send a wrong token to check rejection; never honoured outside a test run.
+    const override = (next.args as any)?._tokenOverride;
+    if (override !== undefined) delete (next.args as any)._tokenOverride;
+    const effectiveToken = override !== undefined && process.env.EIDE_TEST === '1' ? override : this.token;
 
     const payload =
       JSON.stringify({
