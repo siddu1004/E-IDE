@@ -98,6 +98,31 @@ test('runLtspiceSimulation executes batch mode on sample circuit', async () => {
   assert.ok(result.raw!.series['V(out)'] !== undefined, 'Should have V(out) series');
 });
 
+test('runLtspiceSimulation executes SPICE netlist (.cir) input mode', async () => {
+  const exe = findLtspice();
+  if (!exe) return;
+
+  const cirContent = [
+    '* Simple RC circuit',
+    '.tran 1u 2m',
+    'V1 in 0 SINE(0 1 1k)',
+    'R1 in out 1k',
+    'C1 out 0 100n',
+    '.end',
+  ].join('\n');
+
+  const result = await runLtspiceSimulation({
+    executablePath: exe,
+    cirContent,
+    timeoutMs: 30000,
+  });
+
+  assert.ok(result.success, `Netlist simulation failed: ${result.error}`);
+  assert.equal(result.exitCode, 0);
+  assert.ok(result.raw !== undefined);
+  assert.ok(result.raw!.series['V(out)'] !== undefined);
+});
+
 test('runLtspiceSimulation handles cancellation', async () => {
   const exe = findLtspice();
   if (!exe) return;

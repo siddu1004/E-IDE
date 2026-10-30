@@ -30,6 +30,8 @@ export interface RunOptions {
   executablePath: string;
   ascPath?: string;
   ascContent?: string;
+  cirPath?: string;
+  cirContent?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -194,17 +196,52 @@ export async function runLtspiceSimulation(options: RunOptions): Promise<Simulat
     };
   }
 
-  // Get source content
-  let sourceContent = options.ascContent;
-  if (sourceContent === undefined && options.ascPath) {
-    sourceContent = fs.readFileSync(options.ascPath, 'utf8');
-  }
-  if (sourceContent === undefined) {
-    throw new Error('Either ascContent or ascPath must be provided');
-  }
+  // Determine mode: netlist (.cir) vs schematic (.asc)
+  const isCir = options.cirContent !== undefined || (options.cirPath !== undefined && options.ascPath === undefined && options.ascContent === undefined);
 
-  // Prepare safe batch content (commenting secondary simulation commands)
-  const { content: preparedContent, activeDirective } = prepareSimulationAsc(sourceContent);
+  let runFileName = 'circuit.asc';
+  let preparedContent = '';
+  let activeDirective: string | undefined;
+
+  if (isCir) {
+    runFileName = 'circuit.cir';
+    let rawCir = options.cirContent;
+    if (rawCir === undefined && options.cirPath) {
+      rawCir = fs.readFileSync(options.cirPath, 'utf8');
+    }
+    if (rawCir === undefined) {
+      throw new Error('Either cirContent or cirPath must be provided');
+    }
+
+    // De-duplicate active simulation commands in netlist (.tran, .ac, etc.)
+    const cirLines = rawCir.split(/\r?\n/);
+    let simFound = false;
+    const modifiedLines = cirLines.map((line) => {
+      const match = line.trim().match(/^\.((tran|ac|dc|op|noise|tf))\b/i);
+      if (match) {
+        if (!simFound) {
+          simFound = true;
+          activeDirective = '.' + match[1];
+          return line;
+        } else {
+          return ';' + line;
+        }
+      }
+      return line;
+    });
+    preparedContent = modifiedLines.join(rawCir.includes('\r\n') ? '\r\n' : '\n');
+  } else {
+    let sourceContent = options.ascContent;
+    if (sourceContent === undefined && options.ascPath) {
+      sourceContent = fs.readFileSync(options.ascPath, 'utf8');
+    }
+    if (sourceContent === undefined) {
+      throw new Error('Either ascContent, ascPath, cirContent, or cirPath must be provided');
+    }
+    const prep = prepareSimulationAsc(sourceContent);
+    preparedContent = prep.content;
+    activeDirective = prep.activeDirective;
+  }
 
   if (options.signal?.aborted) {
     return {
@@ -219,11 +256,11 @@ export async function runLtspiceSimulation(options: RunOptions): Promise<Simulat
 
   // Create isolated temp directory
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eide-sim-'));
-  const tempAsc = path.join(tempDir, 'circuit.asc');
+  const tempInput = path.join(tempDir, runFileName);
   const tempLog = path.join(tempDir, 'circuit.log');
   const tempRaw = path.join(tempDir, 'circuit.raw');
 
-  fs.writeFileSync(tempAsc, preparedContent, 'utf8');
+  fs.writeFileSync(tempInput, preparedContent, 'utf8');
 
   let processHandle: child_process.ChildProcess | undefined;
   let timedOut = false;
@@ -258,7 +295,7 @@ export async function runLtspiceSimulation(options: RunOptions): Promise<Simulat
 
   try {
     const exitCode = await new Promise<number | null>((resolve) => {
-      const child = child_process.spawn(options.executablePath, ['-b', tempAsc], {
+      const child = child_process.spawn(options.executablePath, ['-b', tempInput], {
         cwd: tempDir,
         stdio: 'ignore',
         windowsHide: true,
