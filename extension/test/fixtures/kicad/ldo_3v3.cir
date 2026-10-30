@@ -1,0 +1,5 @@
+.title KiCad schematic
+C1 Net-_U1-VIN_ Net-_C1-Pad2_ 10u
+U1 __U1
+C2 Net-_U1-VOUT_ Net-_C1-Pad2_ 10u
+.end

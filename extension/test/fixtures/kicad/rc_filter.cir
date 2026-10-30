@@ -1,0 +1,7 @@
+.title KiCad schematic
+.tran 1u 5m
+C1 /OUT Net-_C1-Pad2_ 100n
+V1 /IN Net-_C1-Pad2_ SINE(0 1 1k) 
+R1 /IN /OUT 1k
+.end
+
