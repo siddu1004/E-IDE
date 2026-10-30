@@ -16,7 +16,17 @@ A standalone IDE is not the first step. Agentic development already happens in A
 
 ## Status
 
-Research phase. See [docs/research/electrical-ide-feasibility.md](docs/research/electrical-ide-feasibility.md) for feasibility, existing integrations, licensing constraints, and the MVP plan.
+Milestone 0 is done: the LTspice schematic editor. Opening an `.asc` file shows a visual schematic with an editable components table, and any change to the file (by you or an agent) flashes on screen.
+
+Try it:
+
+1. `cd extension && npm install && npm test`
+2. Open the `extension` folder and press F5. A development window opens with `samples/`.
+3. Open `rc_lowpass.asc`, then change a value in the table or edit the file as text.
+
+Next milestone (simulation runner, waveforms, live re-run): [docs/handoff/antigravity-prompt.md](docs/handoff/antigravity-prompt.md).
+
+Background research: see [docs/research/electrical-ide-feasibility.md](docs/research/electrical-ide-feasibility.md) for feasibility, existing integrations, licensing constraints, and the MVP plan.
 
 ## Open questions
 

@@ -1,0 +1,51 @@
+{
+  "name": "e-ide",
+  "displayName": "E-IDE: Electrical Engineering Workspace",
+  "description": "Visual editors for LTspice, KiCad, and Simulink files, with live agent edits.",
+  "version": "0.0.1",
+  "publisher": "siddu1004",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/siddu1004/E-IDE.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "eide.ltspiceSchematic",
+        "displayName": "LTspice Schematic",
+        "selector": [
+          {
+            "filenamePattern": "*.asc"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "eide.openAsText",
+        "title": "E-IDE: Reopen as Text"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4"
+  }
+}

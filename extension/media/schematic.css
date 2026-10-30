@@ -1,0 +1,161 @@
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+#file-name {
+  font-weight: 600;
+}
+
+#banner {
+  flex: 1;
+  opacity: 0;
+  color: var(--vscode-charts-orange);
+  transition: opacity 0.3s;
+}
+
+#banner.visible {
+  opacity: 1;
+}
+
+button {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+main {
+  display: flex;
+  height: calc(100vh - 40px);
+}
+
+#canvas {
+  flex: 1;
+  min-width: 0;
+}
+
+aside {
+  width: 300px;
+  overflow: auto;
+  padding: 8px 12px;
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+h2 {
+  font-size: 0.85em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin: 12px 0 6px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+td,
+th {
+  text-align: left;
+  padding: 3px 4px;
+}
+
+tr.selected {
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent);
+  padding: 2px 4px;
+}
+
+ul {
+  padding-left: 16px;
+  margin: 0;
+  font-family: var(--vscode-editor-font-family);
+}
+
+/* Schematic drawing */
+#canvas line,
+#canvas path,
+#canvas rect,
+#canvas circle {
+  stroke: var(--vscode-foreground);
+  stroke-width: 2;
+  fill: none;
+}
+
+#canvas .wires line {
+  stroke: var(--vscode-charts-blue);
+}
+
+#canvas .dot {
+  fill: var(--vscode-charts-blue);
+  stroke: none;
+}
+
+#canvas text {
+  fill: var(--vscode-foreground);
+  font-size: 14px;
+  font-family: var(--vscode-editor-font-family);
+  stroke: none;
+}
+
+#canvas .type {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#canvas .directive {
+  fill: var(--vscode-charts-purple);
+}
+
+#canvas .comment {
+  fill: var(--vscode-descriptionForeground);
+}
+
+#canvas .symbol {
+  cursor: pointer;
+}
+
+#canvas .symbol.selected * {
+  stroke: var(--vscode-focusBorder);
+}
+
+/* Agent or user edits flash briefly so changes are visible as they land. */
+@keyframes flash {
+  0%,
+  60% {
+    stroke: var(--vscode-charts-orange);
+    fill: var(--vscode-charts-orange);
+    background: color-mix(in srgb, var(--vscode-charts-orange) 25%, transparent);
+  }
+}
+
+#canvas .changed,
+#canvas .changed *,
+tr.changed,
+li.changed {
+  animation: flash 3s ease-out;
+}
+
+#canvas .symbol.changed * {
+  fill: none;
+}
