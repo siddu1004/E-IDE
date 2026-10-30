@@ -5,6 +5,10 @@ body {
   color: var(--vscode-foreground);
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 header {
@@ -13,6 +17,7 @@ header {
   gap: 12px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
 }
 
 #file-name {
@@ -24,10 +29,18 @@ header {
   opacity: 0;
   color: var(--vscode-charts-orange);
   transition: opacity 0.3s;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
 }
 
 #banner.visible {
   opacity: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 button {
@@ -36,30 +49,77 @@ button {
   border: none;
   padding: 4px 10px;
   cursor: pointer;
+  border-radius: 2px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+button.primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+button.primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--vscode-charts-orange);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner.hidden {
+  display: none;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 main {
   display: flex;
-  height: calc(100vh - 40px);
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#schematic-container {
+  display: flex;
+  flex: 1;
+  min-height: 200px;
+  border-bottom: 1px solid var(--vscode-panel-border);
 }
 
 #canvas {
   flex: 1;
   min-width: 0;
+  height: 100%;
 }
 
 aside {
-  width: 300px;
-  overflow: auto;
+  width: 280px;
+  overflow-y: auto;
   padding: 8px 12px;
   border-left: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, transparent);
 }
 
 h2 {
   font-size: 0.85em;
   text-transform: uppercase;
   opacity: 0.7;
-  margin: 12px 0 6px;
+  margin: 10px 0 6px;
 }
 
 table {
@@ -104,11 +164,25 @@ ul {
 
 #canvas .wires line {
   stroke: var(--vscode-charts-blue);
+  cursor: pointer;
+}
+
+#canvas .wires line:hover {
+  stroke-width: 4;
 }
 
 #canvas .dot {
   fill: var(--vscode-charts-blue);
   stroke: none;
+}
+
+#canvas .flag {
+  cursor: pointer;
+}
+
+#canvas .flag:hover text {
+  fill: var(--vscode-charts-orange);
+  font-weight: bold;
 }
 
 #canvas text {
@@ -135,11 +209,15 @@ ul {
   cursor: pointer;
 }
 
+#canvas .symbol:hover * {
+  stroke: var(--vscode-charts-orange);
+}
+
 #canvas .symbol.selected * {
   stroke: var(--vscode-focusBorder);
 }
 
-/* Agent or user edits flash briefly so changes are visible as they land. */
+/* Agent or user edits flash briefly */
 @keyframes flash {
   0%,
   60% {
@@ -158,4 +236,122 @@ li.changed {
 
 #canvas .symbol.changed * {
   fill: none;
+}
+
+/* Waveform Panel */
+#waveform-container {
+  display: flex;
+  flex-direction: column;
+  height: 260px;
+  flex-shrink: 0;
+  background: var(--vscode-editor-background);
+  position: relative;
+}
+
+.waveform-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 11px;
+}
+
+.waveform-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#plot-title {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+.traces-legend {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.trace-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.2));
+  color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  border: 1px solid transparent;
+}
+
+.trace-pill.active {
+  border-color: currentColor;
+}
+
+.trace-pill.faded {
+  opacity: 0.4;
+}
+
+.trace-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.measurements-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-descriptionForeground);
+}
+
+.meas-item strong {
+  color: var(--vscode-foreground);
+}
+
+.waveform-canvas-box {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  width: 100%;
+}
+
+#waveform-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#cursor-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--vscode-editorHoverWidget-background, #252526);
+  border: 1px solid var(--vscode-editorHoverWidget-border, #454545);
+  color: var(--vscode-editorHoverWidget-foreground, #cccccc);
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  z-index: 10;
+  white-space: pre-line;
+  display: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+#waveform-empty-msg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--vscode-descriptionForeground);
+  font-size: 13px;
+  pointer-events: none;
 }

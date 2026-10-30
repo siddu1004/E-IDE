@@ -35,8 +35,32 @@
       {
         "command": "eide.openAsText",
         "title": "E-IDE: Reopen as Text"
+      },
+      {
+        "command": "eide.runSimulation",
+        "title": "E-IDE: Run Simulation"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "E-IDE",
+      "properties": {
+        "eide.ltspice.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the LTspice executable. If empty, default installation paths are searched."
+        },
+        "eide.ltspice.autoRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically re-run simulation when the schematic changes (debounced 800ms)."
+        },
+        "eide.ltspice.timeout": {
+          "type": "number",
+          "default": 60,
+          "description": "Timeout in seconds for LTspice batch simulation."
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p .",

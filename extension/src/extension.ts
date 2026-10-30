@@ -12,6 +12,9 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.commands.executeCommand('vscode.openWith', input.uri, 'default');
       }
     }),
+    vscode.commands.registerCommand('eide.runSimulation', () => {
+      AscEditorProvider.runSimulationOnActive();
+    }),
   );
 }
 
