@@ -85,6 +85,9 @@ export function parseAsc(source: string): AscSchematic {
     const [kw, ...rest] = tokens;
     switch (kw) {
       case 'SYMBOL':
+        if (rest.length < 3) {
+          throw new Error('Truncated SYMBOL definition at line ' + (line + 1));
+        }
         current = {
           id: '',
           type: rest[0] ?? '',
@@ -98,10 +101,14 @@ export function parseAsc(source: string): AscSchematic {
         result.symbols.push(current);
         return;
       case 'SYMATTR':
-        if (current && rest[0]) {
-          current.attrs[rest[0]] = { value: remainder(raw, 2), line };
-          current.endLine = line;
+        if (!current) {
+          throw new Error('Unexpected SYMATTR without active SYMBOL at line ' + (line + 1));
         }
+        if (rest.length < 2) {
+          throw new Error('Truncated SYMATTR definition at line ' + (line + 1));
+        }
+        current.attrs[rest[0]] = { value: remainder(raw, 2), line };
+        current.endLine = line;
         return;
       case 'WINDOW':
         if (current) current.endLine = line;
@@ -136,7 +143,10 @@ export function parseAsc(source: string): AscSchematic {
   });
 
   for (const s of result.symbols) {
-    s.id = s.attrs.InstName?.value ?? `${s.type}@${s.x},${s.y}`;
+    if (!s.attrs.InstName || !s.attrs.InstName.value) {
+      throw new Error('Truncated schematic: symbol definition missing InstName attribute');
+    }
+    s.id = s.attrs.InstName.value;
   }
   return result;
 }

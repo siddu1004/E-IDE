@@ -257,3 +257,55 @@ ul {
   font-size: 13px;
   pointer-events: none;
 }
+
+/* Error Overlay */
+.error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+  text-align: center;
+}
+
+.error-overlay.hidden {
+  display: none !important;
+}
+
+.error-box {
+  max-width: 500px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  padding: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.error-icon {
+  font-size: 32px;
+  color: var(--vscode-editorError-foreground, #f14c4c);
+}
+
+.error-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.error-message {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  word-break: break-word;
+}
+

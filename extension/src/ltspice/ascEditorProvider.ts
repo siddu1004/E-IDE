@@ -1,5 +1,8 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { TestHook } from '../testHook';
 import { AscSchematic, diffSchematics, parseAsc, symbolAttrEdit } from './ascParser';
 import { findLtspice, runLtspiceSimulation, SimulationRunResult } from './ltspiceRunner';
 
@@ -27,10 +30,28 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
     };
     webview.html = this.html(webview);
 
+    let isDisposed = false;
     let last: AscSchematic | undefined;
     let autoRunTimer: NodeJS.Timeout | undefined;
     let abortController: AbortController | undefined;
     let previousResult: SimulationRunResult | undefined;
+
+    const testHookHandle = TestHook.register(
+      AscEditorProvider.viewType,
+      document.uri,
+      webview,
+      async (msg) => {
+        await handleMessage(msg);
+      }
+    );
+
+    const safePostMessage = (msg: any) => {
+      if (isDisposed) return;
+      testHookHandle?.recordPostMessage(msg);
+      try {
+        return webview.postMessage(msg);
+      } catch {}
+    };
 
     const editorController = {
       runSimulation: (isManual = false) => triggerSimulation(undefined, isManual),
@@ -49,21 +70,38 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
     }
 
     const push = (changesToReport?: any) => {
-      const next = parseAsc(document.getText());
-      const changes = changesToReport || diffSchematics(last, next);
-      last = next;
-      webview.postMessage({ type: 'update', schematic: next, changes, fileName: path.basename(document.fileName) });
-      return changes;
+      if (isDisposed) return;
+      try {
+        const text = document.getText();
+        if (text.includes('\0') || (text.length > 0 && !text.includes('Version') && !text.includes('SYMBOL') && !text.includes('WIRE') && !text.includes('FLAG'))) {
+          throw new Error('File contains invalid or binary LTspice format');
+        }
+        if (text.trim().length === 0) {
+          throw new Error('File is empty (0 bytes)');
+        }
+        const next = parseAsc(text);
+        const changes = changesToReport || diffSchematics(last, next);
+        last = next;
+        safePostMessage({ type: 'update', schematic: next, changes, fileName: path.basename(document.fileName) });
+        return changes;
+      } catch (err: any) {
+        safePostMessage({
+          type: 'error',
+          error: `Unable to open LTspice schematic: ${err.message}`,
+          fileName: path.basename(document.fileName),
+        });
+      }
     };
 
     const triggerSimulation = async (changesSummary?: string, isManual = false) => {
+      if (isDisposed) return;
       const config = vscode.workspace.getConfiguration('eide.ltspice');
       const customPath = config.get<string>('path');
       const timeoutSec = config.get<number>('timeout', 60);
 
       const exe = findLtspice(customPath);
       if (!exe) {
-        webview.postMessage({
+        safePostMessage({
           type: 'simError',
           error: 'LTspice executable not found. Please configure eide.ltspice.path in settings.',
         });
@@ -87,7 +125,7 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
       const controller = new AbortController();
       abortController = controller;
 
-      webview.postMessage({ type: 'simStart' });
+      safePostMessage({ type: 'simStart' });
 
       try {
         const result = await runLtspiceSimulation({
@@ -98,7 +136,7 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
           signal: controller.signal,
         });
 
-        if (controller.signal.aborted) return;
+        if (isDisposed || controller.signal.aborted) return;
 
         let bannerText = '';
         if (result.success) {
@@ -111,7 +149,7 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
         }
 
         // Send results (converting TypedArrays to plain numbers or sending structured clone)
-        webview.postMessage({
+        safePostMessage({
           type: 'simulationResult',
           success: result.success,
           durationMs: result.durationMs,
@@ -155,18 +193,21 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
           previousResult = result;
         }
       } catch (err: any) {
-        webview.postMessage({ type: 'simError', error: err.message });
+        if (!isDisposed && !controller.signal.aborted) {
+          safePostMessage({ type: 'simError', error: err.message });
+        }
       }
     };
 
     const sub = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (isDisposed) return;
       if (e.document.uri.toString() === document.uri.toString()) {
         const changes = push();
 
         const config = vscode.workspace.getConfiguration('eide.ltspice');
         const autoRun = config.get<boolean>('autoRun', true);
 
-        if (autoRun) {
+        if (autoRun && changes) {
           clearTimeout(autoRunTimer);
           const parts: string[] = [];
           if (changes.symbols?.length) parts.push(`changed ${changes.symbols.join(', ')}`);
@@ -183,15 +224,18 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
     });
 
     panel.onDidDispose(() => {
+      isDisposed = true;
       sub.dispose();
       clearTimeout(autoRunTimer);
       if (abortController) abortController.abort();
       if (AscEditorProvider.activeEditor === editorController) {
         AscEditorProvider.activeEditor = undefined;
       }
+      testHookHandle?.dispose();
     });
 
-    webview.onDidReceiveMessage(async (msg) => {
+    const handleMessage = async (msg: any) => {
+      if (isDisposed) return;
       switch (msg?.type) {
         case 'ready': {
           push();
@@ -213,8 +257,19 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
           break;
+        case 'snapshotResult':
+          if (process.env.EIDE_TEST === '1' && msg.dataUrl) {
+            const outDir = path.join(os.tmpdir(), 'eide_screenshots');
+            fs.mkdirSync(outDir, { recursive: true });
+            const base64Data = msg.dataUrl.replace(/^data:image\/png;base64,/, '');
+            fs.writeFileSync(path.join(outDir, `${msg.name}.png`), Buffer.from(base64Data, 'base64'));
+            safePostMessage({ type: 'snapshotSaved', name: msg.name });
+          }
+          break;
       }
-    });
+    };
+
+    webview.onDidReceiveMessage(handleMessage);
   }
 
   private async setAttr(document: vscode.TextDocument, id: string, key: string, value: string) {
@@ -239,7 +294,7 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data: blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${media('schematic.css')}" rel="stylesheet">
   <title>LTspice Schematic</title>

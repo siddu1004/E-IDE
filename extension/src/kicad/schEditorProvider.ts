@@ -1,7 +1,9 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { findLtspice } from '../ltspice/ltspiceRunner';
+import { TestHook } from '../testHook';
 import { findKicadCli, runErc } from './kicadCli';
 import { simulateKicadSchematic } from './kicadSimulation';
 import { diffSchematics, KicadSchematic, parseKicadSch, propertyEdit } from './schParser';
@@ -46,11 +48,29 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
     };
     webview.html = this.html(webview);
 
+    let isDisposed = false;
     let last: KicadSchematic | undefined;
     let autoSimTimer: NodeJS.Timeout | undefined;
     let abortController: AbortController | undefined;
     let previousRaw: any | undefined;
     let lastKnownMtime = 0;
+
+    const testHookHandle = TestHook.register(
+      KicadEditorProvider.viewType,
+      document.uri,
+      webview,
+      async (msg) => {
+        await handleMessage(msg);
+      }
+    );
+
+    const safePostMessage = (msg: any) => {
+      if (isDisposed) return;
+      testHookHandle?.recordPostMessage(msg);
+      try {
+        return webview.postMessage(msg);
+      } catch {}
+    };
 
     try {
       if (fs.existsSync(document.uri.fsPath)) {
@@ -76,8 +96,15 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
     }
 
     const push = (changesToReport?: any) => {
+      if (isDisposed) return;
       try {
         const text = document.getText();
+        if (text.includes('\0')) {
+          throw new Error('File contains binary data');
+        }
+        if (text.trim().length === 0) {
+          throw new Error('File is empty (0 bytes)');
+        }
         const next = parseKicadSch(text);
         const changes = changesToReport || diffSchematics(last, next);
         last = next;
@@ -88,7 +115,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
           libSymbolsObj[k] = v;
         }
 
-        webview.postMessage({
+        safePostMessage({
           type: 'update',
           schematic: {
             ...next,
@@ -100,24 +127,29 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
         });
         return changes;
       } catch (err: any) {
-        console.error('Error parsing KiCad schematic:', err);
+        safePostMessage({
+          type: 'error',
+          error: `Unable to open KiCad schematic: ${err.message}`,
+          fileName: path.basename(document.fileName),
+        });
       }
     };
 
     const triggerSimulation = async (changesSummary?: string) => {
+      if (isDisposed) return;
       const config = vscode.workspace.getConfiguration('eide');
       const ltspicePath = findLtspice(config.get<string>('ltspice.path'));
       const kicadCliPath = findKicadCli(config.get<string>('kicad.cliPath'));
 
       if (!ltspicePath) {
-        webview.postMessage({
+        safePostMessage({
           type: 'simError',
           error: 'LTspice executable not found. Please set eide.ltspice.path.',
         });
         return;
       }
       if (!kicadCliPath) {
-        webview.postMessage({
+        safePostMessage({
           type: 'simError',
           error: 'kicad-cli not found. Please set eide.kicad.cliPath.',
         });
@@ -129,7 +161,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
       const controller = new AbortController();
       abortController = controller;
 
-      webview.postMessage({ type: 'simStart' });
+      safePostMessage({ type: 'simStart' });
 
       try {
         const simRes = await simulateKicadSchematic({
@@ -140,7 +172,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
           signal: controller.signal,
         });
 
-        if (controller.signal.aborted) return;
+        if (isDisposed || controller.signal.aborted) return;
 
         let bannerText = '';
         if (simRes.success && simRes.runResult) {
@@ -148,7 +180,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
           bannerText = changesSummary ? `Update: ${changesSummary} · re-simulated in ${dur} s` : `Simulation finished in ${dur} s`;
         }
 
-        webview.postMessage({
+        safePostMessage({
           type: 'simulationResult',
           success: simRes.success,
           missingModels: simRes.missingModels,
@@ -188,11 +220,14 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
           };
         }
       } catch (err: any) {
-        webview.postMessage({ type: 'simError', error: err.message });
+        if (!isDisposed && !controller.signal.aborted) {
+          safePostMessage({ type: 'simError', error: err.message });
+        }
       }
     };
 
     const triggerErc = async () => {
+      if (isDisposed) return;
       const config = vscode.workspace.getConfiguration('eide');
       const kicadCliPath = findKicadCli(config.get<string>('kicad.cliPath'));
       if (!kicadCliPath) {
@@ -209,6 +244,8 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
         cliPath: kicadCliPath,
         schPath: document.uri.fsPath,
       });
+
+      if (isDisposed) return;
 
       if (!res.success) {
         vscode.window.showErrorMessage(`ERC failed: ${res.error}`);
@@ -245,10 +282,11 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
       }
 
       this.ercDiagnostics.set(document.uri, diagnostics);
-      webview.postMessage({ type: 'ercResult', report: res.report });
+      safePostMessage({ type: 'ercResult', report: res.report });
     };
 
     const sub = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (isDisposed) return;
       if (e.document.uri.toString() === document.uri.toString()) {
         const changes = push();
         try {
@@ -275,6 +313,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
     });
 
     panel.onDidDispose(() => {
+      isDisposed = true;
       sub.dispose();
       clearTimeout(autoSimTimer);
       if (abortController) abortController.abort();
@@ -282,9 +321,11 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
       if (KicadEditorProvider.activeEditor === editorController) {
         KicadEditorProvider.activeEditor = undefined;
       }
+      testHookHandle?.dispose();
     });
 
-    webview.onDidReceiveMessage(async (msg) => {
+    const handleMessage = async (msg: any) => {
+      if (isDisposed) return;
       switch (msg?.type) {
         case 'ready':
           push();
@@ -304,8 +345,19 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
           break;
+        case 'snapshotResult':
+          if (process.env.EIDE_TEST === '1' && msg.dataUrl) {
+            const outDir = path.join(os.tmpdir(), 'eide_screenshots');
+            fs.mkdirSync(outDir, { recursive: true });
+            const base64Data = msg.dataUrl.replace(/^data:image\/png;base64,/, '');
+            fs.writeFileSync(path.join(outDir, `${msg.name}.png`), Buffer.from(base64Data, 'base64'));
+            safePostMessage({ type: 'snapshotSaved', name: msg.name });
+          }
+          break;
       }
-    });
+    };
+
+    webview.onDidReceiveMessage(handleMessage);
   }
 
   private async setProperty(
@@ -347,7 +399,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data: blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${media('kicad.css')}" rel="stylesheet">
   <title>KiCad Schematic</title>

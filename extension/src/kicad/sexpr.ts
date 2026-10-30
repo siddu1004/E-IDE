@@ -121,6 +121,7 @@ export function parseSExpr(source: string): SExprList {
     const start = pos;
     pos++; // skip '('
     const children: SExpr[] = [];
+    let closed = false;
 
     while (pos < len) {
       skipWhitespaceAndComments();
@@ -128,6 +129,7 @@ export function parseSExpr(source: string): SExprList {
       const ch = source[pos];
       if (ch === ')') {
         pos++;
+        closed = true;
         break;
       }
       if (ch === '(') {
@@ -138,6 +140,11 @@ export function parseSExpr(source: string): SExprList {
         children.push(parseAtom());
       }
     }
+
+    if (!closed) {
+      throw new Error(`Unexpected end of file: unclosed '(' starting at position ${start}`);
+    }
+
     const end = pos;
     return {
       type: 'list',
@@ -153,6 +160,10 @@ export function parseSExpr(source: string): SExprList {
   }
 
   const root = parseList();
+  skipWhitespaceAndComments();
+  if (pos < len) {
+    throw new Error(`Unexpected content after root S-expression at position ${pos}`);
+  }
   return root;
 }
 
