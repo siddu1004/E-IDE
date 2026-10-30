@@ -183,13 +183,19 @@ export class MatlabBridge {
     this.matlabProcess = proc;
 
     proc.on('exit', (code, signal) => {
-      this.cleanup();
-      this.setStatus('off');
+      if (this.matlabProcess === proc) {
+        this.matlabProcess = undefined;
+        this.cleanup();
+        this.setStatus('off');
+      }
     });
 
     proc.on('error', (err) => {
-      this.cleanup();
-      this.setStatus('off');
+      if (this.matlabProcess === proc) {
+        this.matlabProcess = undefined;
+        this.cleanup();
+        this.setStatus('off');
+      }
     });
 
     // 3. Poll connect until bridge responds or timeout
@@ -330,11 +336,17 @@ export class MatlabBridge {
     };
     this.activeRequest = reqObj;
 
-    const payload = JSON.stringify({
-      token: this.token,
-      cmd: next.cmd,
-      args: next.args,
-    }) + '\n';
+    const effectiveToken =
+      (next.args as any)?._tokenOverride !== undefined
+        ? (next.args as any)._tokenOverride
+        : this.token;
+
+    const payload =
+      JSON.stringify({
+        token: effectiveToken,
+        cmd: next.cmd,
+        args: next.args,
+      }) + '\n';
 
     this.socket.write(payload);
   }
@@ -418,23 +430,32 @@ export class MatlabBridge {
   }
 
   public async stop(): Promise<void> {
-    if (this.socket && !this.socket.destroyed) {
+    if (this.socket) {
+      const s = this.socket;
+      this.socket = undefined;
       try {
         await this.sendCommand('exit').catch(() => {});
       } catch {
         // ignore
       }
-      this.socket.destroy();
-      this.socket = undefined;
-    }
-
-    if (this.matlabProcess) {
+      s.removeAllListeners();
       try {
-        this.matlabProcess.kill();
+        s.destroy();
       } catch {
         // ignore
       }
+    }
+
+    if (this.matlabProcess) {
+      const proc = this.matlabProcess;
       this.matlabProcess = undefined;
+      proc.removeAllListeners('exit');
+      proc.removeAllListeners('error');
+      try {
+        proc.kill();
+      } catch {
+        // ignore
+      }
     }
 
     this.cleanup();

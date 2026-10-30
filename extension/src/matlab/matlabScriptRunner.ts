@@ -75,6 +75,9 @@ export class MatlabScriptRunner implements vscode.CodeLensProvider {
       }
 
       const exportDir = path.join(os.tmpdir(), 'eide_figures');
+      if (!require('fs').existsSync(exportDir)) {
+        require('fs').mkdirSync(exportDir, { recursive: true });
+      }
       const res = await this.bridge.runScript(scriptPath, exportDir);
 
       if (res.output) {

@@ -26,8 +26,8 @@ export function parseMatlabErrors(
   // Message on next line or same line
   const fileLineColRegex = /Error:\s*File:\s*(.*?)\s+Line:\s*(\d+)\s+Column:\s*(\d+)/i;
 
-  // Pattern 2: Error in <fn> (line <num>) or Error in <path> (line <num>)
-  const errorInLineRegex = /Error in\s+(.*?)\s*\(line\s+(\d+)\)/i;
+  // Pattern 2: Error in/using <fn> (line <num>) or Error in/using <path> (line <num>)
+  const errorInLineRegex = /Error\s+(?:in|using)\s+(.*?)\s*\(line\s+(\d+)\)/i;
 
   // Pattern 3: Error using <fn>\n<message>
   const errorUsingRegex = /Error using\s+(.*)/i;

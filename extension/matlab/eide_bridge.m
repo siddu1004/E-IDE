@@ -131,9 +131,14 @@ function resp = handleMessage(rawJson, expectedToken)
                     'message', sprintf('Unknown command: %s', cmd)));
         end
     catch cmdErr
+        errMsg = cmdErr.message;
+        try
+            errMsg = getReport(cmdErr, 'basic');
+        catch
+        end
         resp = struct('status', 'error', 'error', struct(...
             'identifier', cmdErr.identifier, ...
-            'message', cmdErr.message));
+            'message', errMsg));
     end
 end
 
@@ -155,8 +160,20 @@ function resp = executeRunScript(args)
 
     % Execute script and capture command window output
     % Double any quotes so a path containing one cannot break out of the string.
-    evalCommand = sprintf('run(''%s'');', strrep(scriptPath, '''', ''''''));
-    output = evalc(evalCommand);
+    try
+        normalizedScriptPath = strrep(scriptPath, '\', '/');
+        evalCommand = sprintf('run(''%s'');', strrep(normalizedScriptPath, '''', ''''''));
+        output = evalc(evalCommand);
+    catch scriptErr
+        errMsg = scriptErr.message;
+        if ~isempty(scriptErr.stack)
+            errMsg = sprintf('%s\nError in %s (line %d)', scriptErr.message, scriptErr.stack(1).name, scriptErr.stack(1).line);
+        end
+        resp = struct('status', 'error', 'error', struct(...
+            'identifier', scriptErr.identifier, ...
+            'message', errMsg));
+        return;
+    end
 
     % Export any created figures
     exportDir = tempdir;
@@ -181,6 +198,9 @@ end
 
 function figFiles = exportOpenFigures(exportDir)
     figFiles = {};
+    if ~isfolder(exportDir)
+        mkdir(exportDir);
+    end
     figs = findall(groot, 'Type', 'figure');
     for i = 1:numel(figs)
         f = figs(i);
@@ -194,14 +214,29 @@ function figFiles = exportOpenFigures(exportDir)
     end
 end
 
+function modelName = ensureModelLoaded(filePath)
+    [~, modelName] = fileparts(filePath);
+    if bdIsLoaded(modelName)
+        try
+            curFile = get_param(modelName, 'FileName');
+            if ~strcmpi(curFile, filePath)
+                close_system(modelName, 0);
+                load_system(filePath);
+            end
+        catch
+            close_system(modelName, 0);
+            load_system(filePath);
+        end
+    else
+        load_system(filePath);
+    end
+end
+
 function resp = executeLoadModel(args)
     if ~isfield(args, 'path') || isempty(args.path)
         error('EIDE:InvalidArgument', 'Missing "path" argument for loadModel');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
     resp = struct('status', 'ok', 'result', struct('model', modelName, 'loaded', true));
 end
 
@@ -209,10 +244,7 @@ function resp = executeGetModelGraph(args)
     if ~isfield(args, 'path') || isempty(args.path)
         error('EIDE:InvalidArgument', 'Missing "path" argument for getModelGraph');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
 
     % Query top-level blocks
     rawBlocks = find_system(modelName, 'SearchDepth', 1, 'Type', 'block');
@@ -277,10 +309,7 @@ function resp = executeSetParam(args)
     if ~isfield(args, 'path') || ~isfield(args, 'block') || ~isfield(args, 'param') || ~isfield(args, 'value')
         error('EIDE:InvalidArgument', 'setParam requires path, block, param, and value');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
 
     fullBlock = [modelName '/' args.block];
     val = args.value;
@@ -297,10 +326,7 @@ function resp = executeAddLine(args)
     if ~isfield(args, 'path') || ~isfield(args, 'src') || ~isfield(args, 'dst')
         error('EIDE:InvalidArgument', 'addLine requires path, src, and dst');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
 
     h = add_line(modelName, args.src, args.dst, 'autorouting', 'on');
     save_system(modelName);
@@ -312,10 +338,7 @@ function resp = executeDeleteLine(args)
     if ~isfield(args, 'path') || ~isfield(args, 'src') || ~isfield(args, 'dst')
         error('EIDE:InvalidArgument', 'deleteLine requires path, src, and dst');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
 
     delete_line(modelName, args.src, args.dst);
     save_system(modelName);
@@ -328,10 +351,7 @@ function resp = executeEnableLogging(args)
     if ~isfield(args, 'path') || ~isfield(args, 'block') || ~isfield(args, 'port')
         error('EIDE:InvalidArgument', 'enableLogging requires path, block, and port');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
     ph = get_param([modelName '/' args.block], 'PortHandles');
     set_param(ph.Outport(args.port), 'DataLogging', 'on');
     save_system(modelName);
@@ -342,10 +362,7 @@ function resp = executeSimulate(args)
     if ~isfield(args, 'path') || isempty(args.path)
         error('EIDE:InvalidArgument', 'Missing "path" argument for simulate');
     end
-    [~, modelName] = fileparts(args.path);
-    if ~bdIsLoaded(modelName)
-        load_system(args.path);
-    end
+    modelName = ensureModelLoaded(args.path);
 
     % Configure logging if not enabled
     set_param(modelName, 'SignalLogging', 'on');
@@ -392,8 +409,21 @@ function resp = executeSimulate(args)
         try
             tout = simOut.get('tout');
             yout = simOut.get('yout');
-            if ~isempty(tout) && ~isempty(yout)
-                if isnumeric(yout) && ismatrix(yout)
+            if ~isempty(yout)
+                if isa(yout, 'Simulink.SimulationData.Dataset')
+                    for i = 1:yout.numElements
+                        elem = yout.get(i);
+                        sigName = elem.Name;
+                        if isempty(sigName)
+                            sigName = sprintf('Outport_%d', i);
+                        end
+                        if isa(elem.Values, 'timeseries')
+                            t = elem.Values.Time(:)';
+                            d = elem.Values.Data(:)';
+                            signals{end+1} = struct('name', sigName, 'time', t, 'values', d); %#ok<AGROW>
+                        end
+                    end
+                elseif isnumeric(yout) && ismatrix(yout) && ~isempty(tout)
                     numCols = size(yout, 2);
                     for col = 1:numCols
                         signals{end+1} = struct(...
