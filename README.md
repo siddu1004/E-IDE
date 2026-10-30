@@ -1,38 +1,21 @@
 # E-IDE
 
-AI-assisted electrical and electronics engineering development: describe a system in natural language, and an agent designs it, models it, simulates it, tests it, and flashes hardware.
+Visual editors for electrical engineering files inside Antigravity and VS Code-compatible editors. Open a circuit file, edit it visually, simulate it, and watch changes made by you or an AI agent appear live.
 
-## Direction
+## Features
 
-A standalone IDE is not the first step. Agentic development already happens in Antigravity, VS Code, and Codex, so E-IDE is built as:
+- **LTspice (`.asc`)**: schematic view, editable component values, simulation in LTspice, and a waveform panel with cursors, measurements, and a faded overlay of the previous run.
+- **KiCad (`.kicad_sch`)**: schematic view drawn from KiCad's own symbols, net highlighting, editable values and footprints, ERC results in the Problems panel, and simulation through LTspice.
+- **Live changes**: any edit to the file flashes on screen and can re-run the simulation automatically.
 
-1. **Execution engine**: a local MCP tool server that wraps existing engineering tools.
-   - MATLAB/Simulink (MathWorks MATLAB MCP Core Server and Simulink toolkit)
-   - KiCad (IPC API and MCP servers) for schematics and PCBs
-   - PlatformIO for ESP32, Arduino, STM32, and RP2040 build and flash
-   - Instrument drivers (VISA/SCPI, serial) for measurements
-2. **Extension layer**: a thin VS Code-compatible extension for Antigravity, VS Code, and Cursor, plus Codex through its MCP support. It shows run status, schematics, waveforms, and simulation dashboards.
-3. **Standalone shell**: evaluated later, once the engine and extension are proven.
+## Requirements
 
-## Status
+- LTspice (24 or newer recommended)
+- KiCad 9 or newer, for KiCad files
+- Node.js 20 or newer, to build
 
-Milestone 0 is done: the LTspice schematic editor. Opening an `.asc` file shows a visual schematic with an editable components table, and any change to the file (by you or an agent) flashes on screen.
-
-Try it:
+## Try it
 
 1. `cd extension && npm install && npm test`
 2. Open the `extension` folder and press F5. A development window opens with `samples/`.
-3. Open `rc_lowpass.asc`, then change a value in the table or edit the file as text.
-
-Milestone 1 is done: LTspice simulation runner, waveform panel, live re-run, and agent tools.
-
-Next milestone (KiCad editor and simulate from KiCad): [docs/handoff/antigravity-prompt-m2-kicad.md](docs/handoff/antigravity-prompt-m2-kicad.md).
-
-Background research: see [docs/research/electrical-ide-feasibility.md](docs/research/electrical-ide-feasibility.md) for feasibility, existing integrations, licensing constraints, and the MVP plan.
-
-## Open questions
-
-- MathWorks licensing for multi-user or hosted use
-- Antigravity extension API and MCP configuration (verify against official docs)
-- Which KiCad MCP server to adopt after license and maintenance review
-- First-release hardware target list
+3. Open `rc_lowpass.asc` or `rc_filter.kicad_sch`, then change a value in the table or edit the file as text.

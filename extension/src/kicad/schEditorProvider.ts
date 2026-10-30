@@ -125,7 +125,9 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
       }
 
       if (abortController) abortController.abort();
-      abortController = new AbortController();
+      // Keep this run's own controller: abortController may point at a newer run by the time we resume.
+      const controller = new AbortController();
+      abortController = controller;
 
       webview.postMessage({ type: 'simStart' });
 
@@ -135,10 +137,10 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
           ltspicePath,
           schPath: document.uri.fsPath,
           schContent: document.getText(),
-          signal: abortController.signal,
+          signal: controller.signal,
         });
 
-        if (abortController.signal.aborted) return;
+        if (controller.signal.aborted) return;
 
         let bannerText = '';
         if (simRes.success && simRes.runResult) {
@@ -223,21 +225,20 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
             ? vscode.DiagnosticSeverity.Warning
             : vscode.DiagnosticSeverity.Information;
 
-        let targetLine = 0;
-        // Attempt to find line corresponding to item in document text
+        // Every schematic object carries its uuid in the file text, so locate the violation by it.
+        const text = document.getText();
+        let range = new vscode.Range(0, 0, 0, 0);
         for (const it of v.items) {
-          if (it.description) {
-            const firstWord = it.description.split(/\s+/)[1]; // e.g. "R1" or "#PWR1"
-            if (firstWord && last) {
-              const sym = last.symbols.find((s) => s.ref === firstWord);
-              if (sym && sym.properties.Reference) {
-                targetLine = Math.max(0, sym.properties.Reference.y); // Line approximation
-              }
-            }
+          let offset = it.uuid ? text.indexOf(it.uuid) : -1;
+          // KiCad assigns fresh uuids to files with invalid ones; fall back to "Symbol U1 Pin 3".
+          const ref = /^Symbol (\S+)/.exec(it.description)?.[1];
+          if (offset < 0 && ref) offset = text.indexOf(`(property "Reference" "${ref}"`);
+          if (offset >= 0) {
+            range = document.lineAt(document.positionAt(offset).line).range;
+            break;
           }
         }
 
-        const range = new vscode.Range(targetLine, 0, targetLine, 80);
         const diag = new vscode.Diagnostic(range, `[ERC ${v.type}] ${v.description}`, severity);
         diag.source = 'KiCad ERC';
         diagnostics.push(diag);
