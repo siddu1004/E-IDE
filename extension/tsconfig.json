@@ -7,7 +7,7 @@
     "strict": true,
     "sourceMap": true,
     "lib": ["ES2022"],
-    "types": ["node", "vscode"]
+    "types": ["node", "vscode", "mocha"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "test-integration/**/*.ts"]
 }
