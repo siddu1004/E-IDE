@@ -39,6 +39,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "eide.simulinkModel",
+        "displayName": "Simulink Model",
+        "selector": [
+          {
+            "filenamePattern": "*.slx"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "commands": [
@@ -61,6 +71,18 @@
       {
         "command": "eide.exportNetlist",
         "title": "E-IDE: Export Netlist"
+      },
+      {
+        "command": "eide.runMatlabScript",
+        "title": "E-IDE: Run MATLAB Script"
+      },
+      {
+        "command": "eide.simulateSimulink",
+        "title": "E-IDE: Simulate Simulink Model"
+      },
+      {
+        "command": "eide.toggleMatlabBridge",
+        "title": "E-IDE: Toggle MATLAB Session"
       }
     ],
     "configuration": {
@@ -90,6 +112,16 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically re-run simulation when the KiCad schematic changes."
+        },
+        "eide.matlab.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the MATLAB executable. If empty, default installation paths are searched."
+        },
+        "eide.simulink.autoSimulate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically re-run simulation when the Simulink model changes."
         }
       }
     }

@@ -216,3 +216,139 @@ export async function simulateKicad(filePath: string): Promise<KicadSimResult> {
 
   return result;
 }
+
+// --- MATLAB & Simulink Agent Tools ---
+
+import * as fs from 'fs';
+import * as os from 'os';
+import { MatlabBridge, ScriptRunResult, SimulateResult } from '../matlab/matlabBridge';
+import { parseSlx, SlxModel } from '../simulink/slxParser';
+
+let activeMatlabBridge: MatlabBridge | undefined;
+
+export function setMatlabBridge(bridge: MatlabBridge) {
+  activeMatlabBridge = bridge;
+}
+
+export function getMatlabBridge(): MatlabBridge {
+  if (!activeMatlabBridge) {
+    throw new Error('MATLAB bridge is not initialized.');
+  }
+  return activeMatlabBridge;
+}
+
+// 9. Run MATLAB script
+export async function runMatlabScript(filePath: string): Promise<ScriptRunResult> {
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+  const resolved = path.resolve(filePath);
+  const exportDir = path.join(os.tmpdir(), 'eide_figures');
+  return await bridge.runScript(resolved, exportDir);
+}
+
+// 10. Get Simulink model graph
+export async function getSimulinkModel(filePath: string): Promise<SlxModel> {
+  const resolved = path.resolve(filePath);
+  const buf = fs.readFileSync(resolved);
+  const modelName = path.basename(resolved, '.slx');
+  return parseSlx(buf, modelName);
+}
+
+// 11. Set Simulink block parameter
+export async function setBlockParam(
+  filePath: string,
+  block: string,
+  param: string,
+  value: string | number
+): Promise<{ saved: boolean }> {
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+  const resolved = path.resolve(filePath);
+  const res = await bridge.setParam(resolved, block, param, value);
+
+  // If editor is open, post updated model
+  const webview = activeSimulationWebviews.get(resolved.toLowerCase());
+  if (webview) {
+    const buf = fs.readFileSync(resolved);
+    const model = parseSlx(buf, path.basename(resolved, '.slx'));
+    webview.postMessage({
+      type: 'update',
+      model,
+      fileName: path.basename(resolved),
+    });
+  }
+
+  return res;
+}
+
+// 12. Connect Simulink blocks
+export async function connectBlocks(
+  filePath: string,
+  src: string,
+  dst: string
+): Promise<{ lineHandle: number }> {
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+  const resolved = path.resolve(filePath);
+  const res = await bridge.addLine(resolved, src, dst);
+
+  // If editor is open, refresh view
+  const webview = activeSimulationWebviews.get(resolved.toLowerCase());
+  if (webview) {
+    const buf = fs.readFileSync(resolved);
+    const model = parseSlx(buf, path.basename(resolved, '.slx'));
+    webview.postMessage({
+      type: 'update',
+      model,
+      fileName: path.basename(resolved),
+    });
+  }
+
+  return res;
+}
+
+// 13. Simulate Simulink model
+export async function simulateModel(
+  filePath: string,
+  stopTime?: number | string
+): Promise<SimulateResult> {
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+  const resolved = path.resolve(filePath);
+  const res = await bridge.simulate(resolved, stopTime);
+
+  // Post to open webview
+  const webview = activeSimulationWebviews.get(resolved.toLowerCase());
+  if (webview && res.signals.length > 0) {
+    const firstSig = res.signals[0];
+    const seriesObj: Record<string, number[]> = {};
+    const variables = ['time'];
+
+    for (const s of res.signals) {
+      seriesObj[s.name] = s.values;
+      variables.push(s.name);
+    }
+
+    webview.postMessage({
+      type: 'simulationResult',
+      current: {
+        plotName: 'Simulink Simulation',
+        variables,
+        x: firstSig.time,
+        series: seriesObj,
+      },
+      success: true,
+    });
+  }
+
+  return res;
+}
+
