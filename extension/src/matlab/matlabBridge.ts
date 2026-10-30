@@ -374,6 +374,10 @@ export class MatlabBridge {
     return this.sendCommand('setParam', { path: modelPath, block, param, value });
   }
 
+  public async enableLogging(modelPath: string, block: string, port: number): Promise<{ saved: boolean }> {
+    return this.sendCommand('enableLogging', { path: modelPath, block, port });
+  }
+
   public async addLine(modelPath: string, src: string, dst: string): Promise<{ lineHandle: number }> {
     return this.sendCommand('addLine', { path: modelPath, src, dst });
   }

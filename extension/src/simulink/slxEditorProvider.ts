@@ -144,8 +144,9 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
           const seriesObj: Record<string, number[]> = {};
           const variables = ['time'];
 
+          // Signals can have their own time vectors (logsout vs simlog, variable step), so put all on the first one's.
           for (const s of simRes.signals) {
-            seriesObj[s.name] = s.values;
+            seriesObj[s.name] = resampleTo(time, s.time, s.values);
             variables.push(s.name);
           }
 
@@ -231,14 +232,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
               vscode.window.showWarningMessage('Start MATLAB to enable signal logging.');
               return;
             }
-            // Enable signal logging on specified block port
-            const portName = `${msg.line.srcBlock}/${msg.line.srcPort}`;
-            await this.bridge.sendCommand('setParam', {
-              path: fsPath,
-              block: msg.line.srcBlock,
-              param: 'DataLogging',
-              value: 'on',
-            }).catch(() => {});
+            await this.bridge.enableLogging(fsPath, String(msg.line.srcBlock), Number(msg.line.srcPort) || 1);
             // Re-simulate to capture newly logged signal
             await triggerSimulation();
           } catch (err: any) {
@@ -307,4 +301,17 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
 </body>
 </html>`;
   }
+}
+
+export function resampleTo(target: number[], t: number[], v: number[]): number[] {
+  if (t.length === target.length && t.every((x, i) => x === target[i])) return v;
+  const out: number[] = [];
+  let j = 0;
+  for (const x of target) {
+    while (j < t.length - 2 && t[j + 1] < x) j++;
+    const t0 = t[j], t1 = t[j + 1] ?? t0;
+    const f = t1 > t0 ? Math.min(1, Math.max(0, (x - t0) / (t1 - t0))) : 0;
+    out.push(v[j] + f * ((v[j + 1] ?? v[j]) - v[j]));
+  }
+  return out;
 }

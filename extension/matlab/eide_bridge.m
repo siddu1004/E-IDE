@@ -110,6 +110,9 @@ function resp = handleMessage(rawJson, expectedToken)
             case 'addLine'
                 resp = executeAddLine(args);
 
+            case 'enableLogging'
+                resp = executeEnableLogging(args);
+
             case 'deleteLine'
                 resp = executeDeleteLine(args);
 
@@ -151,7 +154,8 @@ function resp = executeRunScript(args)
     close all hidden;
 
     % Execute script and capture command window output
-    evalCommand = sprintf('run(''%s'');', scriptPath);
+    % Double any quotes so a path containing one cannot break out of the string.
+    evalCommand = sprintf('run(''%s'');', strrep(scriptPath, '''', ''''''));
     output = evalc(evalCommand);
 
     % Export any created figures
@@ -317,6 +321,21 @@ function resp = executeDeleteLine(args)
     save_system(modelName);
 
     resp = struct('status', 'ok', 'result', struct('deleted', true, 'saved', true));
+end
+
+function resp = executeEnableLogging(args)
+    % DataLogging is a port parameter, so it must be set on the outport handle, not the block.
+    if ~isfield(args, 'path') || ~isfield(args, 'block') || ~isfield(args, 'port')
+        error('EIDE:InvalidArgument', 'enableLogging requires path, block, and port');
+    end
+    [~, modelName] = fileparts(args.path);
+    if ~bdIsLoaded(modelName)
+        load_system(args.path);
+    end
+    ph = get_param([modelName '/' args.block], 'PortHandles');
+    set_param(ph.Outport(args.port), 'DataLogging', 'on');
+    save_system(modelName);
+    resp = struct('status', 'ok', 'result', struct('saved', true));
 end
 
 function resp = executeSimulate(args)
