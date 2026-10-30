@@ -29,6 +29,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "eide.kicadSchematic",
+        "displayName": "KiCad Schematic",
+        "selector": [
+          {
+            "filenamePattern": "*.kicad_sch"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "commands": [
@@ -39,6 +49,18 @@
       {
         "command": "eide.runSimulation",
         "title": "E-IDE: Run Simulation"
+      },
+      {
+        "command": "eide.runKicadErc",
+        "title": "E-IDE: Run ERC"
+      },
+      {
+        "command": "eide.simulateKicad",
+        "title": "E-IDE: Simulate in LTspice"
+      },
+      {
+        "command": "eide.exportNetlist",
+        "title": "E-IDE: Export Netlist"
       }
     ],
     "configuration": {
@@ -58,6 +80,16 @@
           "type": "number",
           "default": 60,
           "description": "Timeout in seconds for LTspice batch simulation."
+        },
+        "eide.kicad.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the kicad-cli executable. If empty, default installation paths are searched."
+        },
+        "eide.kicad.autoSimulate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically re-run simulation when the KiCad schematic changes."
         }
       }
     }

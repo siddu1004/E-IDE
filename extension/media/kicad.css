@@ -1,0 +1,136 @@
+@import './shared.css';
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#schematic-container {
+  display: flex;
+  flex: 1;
+  min-height: 200px;
+}
+
+#canvas {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+/* KiCad Schematic Elements */
+#canvas line,
+#canvas polyline,
+#canvas rect,
+#canvas circle,
+#canvas path {
+  stroke: var(--vscode-foreground);
+  stroke-width: 0.35;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#canvas .wires line {
+  stroke: var(--vscode-charts-green, #4ec9b0);
+  stroke-width: 0.45;
+  cursor: pointer;
+}
+
+#canvas .wires line:hover {
+  stroke-width: 0.9;
+  stroke: var(--vscode-charts-orange);
+}
+
+#canvas .junctions circle {
+  fill: var(--vscode-charts-green, #4ec9b0);
+  stroke: none;
+}
+
+#canvas .symbol {
+  cursor: pointer;
+}
+
+#canvas .symbol:hover path,
+#canvas .symbol:hover rect,
+#canvas .symbol:hover polyline,
+#canvas .symbol:hover circle {
+  stroke: var(--vscode-charts-orange);
+}
+
+#canvas .symbol.selected * {
+  stroke: var(--vscode-focusBorder);
+}
+
+#canvas .symbol-pin {
+  stroke: var(--vscode-charts-red, #f14c4c);
+  stroke-width: 0.3;
+}
+
+#canvas text {
+  fill: var(--vscode-foreground);
+  font-size: 1.5px;
+  font-family: var(--vscode-editor-font-family);
+  stroke: none;
+}
+
+#canvas text.ref-text {
+  fill: var(--vscode-charts-blue, #3794ff);
+  font-weight: 600;
+}
+
+#canvas text.val-text {
+  fill: var(--vscode-charts-purple, #b180d7);
+}
+
+#canvas .label {
+  cursor: pointer;
+}
+
+#canvas .label text {
+  fill: var(--vscode-charts-orange, #d18616);
+  font-weight: bold;
+}
+
+#canvas .label:hover text {
+  text-decoration: underline;
+}
+
+#canvas text.directive {
+  fill: var(--vscode-charts-purple, #b180d7);
+  font-family: var(--vscode-editor-font-family);
+}
+
+/* Net Highlighting */
+#canvas .net-highlighted {
+  stroke: var(--vscode-charts-orange) !important;
+  stroke-width: 0.8 !important;
+  filter: drop-shadow(0 0 1px var(--vscode-charts-orange));
+}
+
+#canvas text.net-highlighted {
+  fill: var(--vscode-charts-orange) !important;
+  stroke: none !important;
+}
+
+#canvas circle.net-highlighted {
+  fill: var(--vscode-charts-orange) !important;
+}
+
+#canvas .symbol.changed * {
+  fill: none;
+}

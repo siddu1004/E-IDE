@@ -279,6 +279,7 @@ export class AscEditorProvider implements vscode.CustomTextEditorProvider {
       </div>
     </div>
   </main>
+  <script nonce="${nonce}" src="${media('waveform.js')}"></script>
   <script nonce="${nonce}" src="${media('schematic.js')}"></script>
 </body>
 </html>`;
