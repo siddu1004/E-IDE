@@ -326,6 +326,11 @@
     renderDirectives(schematic, changedTexts);
     if (changes && (changes.symbols?.length || changes.wires?.length || changes.texts?.length)) {
       showBanner(changes);
+      setTimeout(() => {
+        document.querySelectorAll('.changed').forEach((el) => {
+          el.classList.remove('changed');
+        });
+      }, 3200);
     }
   }
 
@@ -405,6 +410,149 @@
     showBannerText(`Update: ${parts.join(' · ')}`);
   }
 
+  function showErrorOverlay(text) {
+    let overlay = document.getElementById('error-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'error-overlay';
+      overlay.className = 'error-overlay';
+      overlay.innerHTML = `
+        <div class="error-box">
+          <div class="error-icon">&#9888;</div>
+          <div class="error-title">Cannot open schematic</div>
+          <div id="error-message" class="error-message"></div>
+          <button id="error-open-as-text" class="primary">Open as text</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      document.getElementById('error-open-as-text').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openAsText' });
+      });
+    }
+    document.getElementById('error-message').textContent = text;
+    overlay.classList.remove('hidden');
+  }
+
+  function hideErrorOverlay() {
+    const overlay = document.getElementById('error-overlay');
+    if (overlay) overlay.classList.add('hidden');
+  }
+
+  async function captureEditorSnapshot(name) {
+    try {
+      const width = 1100;
+      const height = 750;
+      const offscreen = document.createElement('canvas');
+      offscreen.width = width;
+      offscreen.height = height;
+      const ctx = offscreen.getContext('2d');
+
+      const isLight = document.body.classList.contains('vscode-light');
+      const bg = getComputedStyle(document.body).getPropertyValue('--vscode-editor-background').trim() || (isLight ? '#ffffff' : '#1e1e1e');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
+
+      // Header bar
+      ctx.fillStyle = isLight ? '#f3f3f3' : '#252526';
+      ctx.fillRect(0, 0, width, 36);
+      ctx.fillStyle = isLight ? '#333333' : '#cccccc';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('E-IDE KiCad Editor - ' + (document.getElementById('file-name')?.textContent || ''), 16, 22);
+
+      // Schematic SVG
+      const svgEl = document.getElementById('canvas');
+      if (svgEl) {
+        const svgClone = svgEl.cloneNode(true);
+        const svgW = width - 260;
+        const svgH = 380;
+        svgClone.setAttribute('width', svgW);
+        svgClone.setAttribute('height', svgH);
+
+        const fg = isLight ? '#1e1e1e' : '#cccccc';
+        const blue = isLight ? '#0066cc' : '#3794ff';
+        const purple = isLight ? '#7b38a6' : '#b180d7';
+        const green = isLight ? '#2e8b57' : '#4ec9b0';
+        const orange = isLight ? '#d97706' : '#d18616';
+        const red = isLight ? '#cf222e' : '#f14c4c';
+
+        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+        style.textContent = `
+          line, polyline, rect, circle, path { stroke: ${fg}; stroke-width: 0.35px; fill: none; }
+          .wires line { stroke: ${green} !important; stroke-width: 0.45px !important; }
+          .junctions circle { fill: ${green} !important; stroke: none !important; }
+          .symbol-pin { stroke: ${red} !important; stroke-width: 0.3px !important; }
+          text { fill: ${fg} !important; font-size: 1.8px !important; font-family: monospace, sans-serif !important; stroke: none !important; }
+          text.ref-text { fill: ${blue} !important; font-weight: bold; }
+          text.val-text { fill: ${purple} !important; }
+          .directive { fill: ${orange} !important; }
+          .comment { fill: #888888 !important; }
+        `;
+        svgClone.insertBefore(style, svgClone.firstChild);
+
+        const svgData = new XMLSerializer().serializeToString(svgClone);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        await new Promise((resolve) => {
+          img.onload = () => {
+            ctx.drawImage(img, 10, 46, svgW, svgH);
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+          img.onerror = resolve;
+          img.src = url;
+        });
+      }
+
+      // Sidebar components
+      ctx.fillStyle = isLight ? '#f8f8f8' : '#252526';
+      ctx.fillRect(width - 240, 46, 230, 380);
+      ctx.strokeStyle = isLight ? '#e5e5e5' : '#333333';
+      ctx.strokeRect(width - 240, 46, 230, 380);
+      ctx.fillStyle = isLight ? '#333333' : '#cccccc';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('COMPONENTS', width - 230, 68);
+      const rows = document.querySelectorAll('#components tbody tr');
+      let ry = 88;
+      rows.forEach((r, idx) => {
+        if (idx < 10) {
+          ctx.font = '10px monospace';
+          ctx.fillStyle = isLight ? '#555555' : '#aaaaaa';
+          ctx.fillText(r.textContent.replace(/\s+/g, ' ').trim(), width - 230, ry);
+          ry += 18;
+        }
+      });
+
+      // Waveform canvas
+      const waveCanvas = document.getElementById('waveform-canvas');
+      if (waveCanvas && waveCanvas.width > 0) {
+        ctx.fillStyle = isLight ? '#f3f3f3' : '#252526';
+        ctx.fillRect(0, 436, width, 28);
+        ctx.fillStyle = isLight ? '#333333' : '#cccccc';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(document.getElementById('plot-title')?.textContent || 'WAVEFORMS', 16, 454);
+
+        const pills = document.querySelectorAll('.trace-pill');
+        let px = 160;
+        pills.forEach((p) => {
+          ctx.fillStyle = isLight ? '#e0e0e0' : '#383838';
+          ctx.fillRect(px, 442, 60, 16);
+          ctx.fillStyle = isLight ? '#222222' : '#ffffff';
+          ctx.font = '10px sans-serif';
+          ctx.fillText(p.textContent.trim(), px + 8, 454);
+          px += 70;
+        });
+
+        ctx.drawImage(waveCanvas, 0, 466, width, 270);
+      }
+
+      const dataUrl = offscreen.toDataURL('image/png');
+      vscode.postMessage({ type: 'snapshotResult', name, dataUrl });
+    } catch (err) {
+      vscode.postMessage({ type: 'snapshotResult', name, error: String(err) });
+    }
+  }
+
   // Handle incoming messages from extension host
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -412,7 +560,16 @@
 
     switch (msg.type) {
       case 'update':
+        hideErrorOverlay();
         renderSchematic(msg);
+        break;
+
+      case 'error':
+        showErrorOverlay(msg.error || 'Unable to open KiCad schematic');
+        break;
+
+      case 'captureSnapshot':
+        captureEditorSnapshot(msg.name);
         break;
 
       case 'simStart':

@@ -17,7 +17,7 @@
 
   function colorForIndex(i) {
     const varName = PALETTE[i % PALETTE.length];
-    return getThemeColor(varName, ['#3794ff', '#d18616', '#388a34', '#b180d7', '#cca700', '#f14c4c'][i % 6]);
+    return getThemeColor(varName, ['#1f6feb', '#d97706', '#2ea043', '#8250df', '#b45309', '#cf222e'][i % 6]);
   }
 
   function formatSi(value, unit = '') {
@@ -92,8 +92,49 @@
     return { min, max, p2p, rms, freq };
   }
 
-  window.createWaveformViewer = function (elements) {
-    const { canvas, legendBox, measBox, tooltip, emptyMsg, plotTitle } = elements;
+  window.createWaveformViewer = function (elements, options) {
+    let canvas, legendBox, measBox, tooltip, emptyMsg, plotTitle;
+
+    if (elements instanceof HTMLElement) {
+      const container = elements;
+      let header = container.querySelector('.waveform-header');
+      if (!header) {
+        header = document.createElement('div');
+        header.className = 'waveform-header';
+        header.innerHTML = `
+          <div class="waveform-title-group">
+            <span id="plot-title" class="plot-title">${(options && options.title) || 'Waveforms'}</span>
+            <div id="traces-legend" class="traces-legend"></div>
+          </div>
+          <div id="measurements-bar" class="measurements-bar"></div>
+        `;
+        container.appendChild(header);
+      }
+      let canvasBox = container.querySelector('.waveform-canvas-box');
+      if (!canvasBox) {
+        canvasBox = document.createElement('div');
+        canvasBox.className = 'waveform-canvas-box';
+        canvasBox.innerHTML = `
+          <canvas id="waveform-canvas"></canvas>
+          <div id="cursor-tooltip"></div>
+          <div id="waveform-empty-msg">No simulation data available</div>
+        `;
+        container.appendChild(canvasBox);
+      }
+      canvas = container.querySelector('#waveform-canvas');
+      legendBox = container.querySelector('#traces-legend');
+      measBox = container.querySelector('#measurements-bar');
+      tooltip = container.querySelector('#cursor-tooltip');
+      emptyMsg = container.querySelector('#waveform-empty-msg');
+      plotTitle = container.querySelector('#plot-title');
+    } else if (elements) {
+      canvas = elements.canvas;
+      legendBox = elements.legendBox;
+      measBox = elements.measBox;
+      tooltip = elements.tooltip;
+      emptyMsg = elements.emptyMsg;
+      plotTitle = elements.plotTitle;
+    }
 
     let currentPlotData = null;
     let previousPlotData = null;
@@ -240,7 +281,7 @@
       ctx.setLineDash([]);
       ctx.beginPath();
 
-      const numXDivs = 5;
+      const numXDivs = Math.max(2, Math.min(5, Math.floor(plotW / 65)));
       ctx.fillStyle = fgColor;
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
@@ -256,7 +297,7 @@
         ctx.fillText(formatSi(valX, xUnit), gx, padT + plotH + 4);
       }
 
-      const numYDivs = 4;
+      const numYDivs = Math.max(2, Math.min(4, Math.floor(plotH / 35)));
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       for (let i = 0; i <= numYDivs; i++) {
@@ -267,6 +308,12 @@
         ctx.fillText(formatSi(valY), padL - 6, gy);
       }
       ctx.stroke();
+
+      // Clip strictly to plot area so lines and overlays never draw off the axes
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(padL, padT, plotW, plotH);
+      ctx.clip();
 
       // Faded previous run overlay
       if (previousPlotData && previousPlotData.x) {
@@ -321,11 +368,9 @@
         ctx.restore();
       });
 
-      // Cursor and tooltip
+      // Cursor vertical line within clipped plot bounds
       if (cursorXRatio !== null && cursorXRatio >= 0 && cursorXRatio <= 1 && tooltip) {
         const curX = padL + cursorXRatio * plotW;
-        const curValX = minX + cursorXRatio * (maxX - minX);
-
         ctx.save();
         ctx.strokeStyle = getThemeColor('--vscode-focusBorder', '#007fd4');
         ctx.lineWidth = 1;
@@ -335,6 +380,14 @@
         ctx.lineTo(curX, padT + plotH);
         ctx.stroke();
         ctx.restore();
+      }
+
+      ctx.restore(); // Ends plot area clip
+
+      // Cursor points and tooltip
+      if (cursorXRatio !== null && cursorXRatio >= 0 && cursorXRatio <= 1 && tooltip) {
+        const curX = padL + cursorXRatio * plotW;
+        const curValX = minX + cursorXRatio * (maxX - minX);
 
         const tooltips = [`X: ${formatSi(curValX, xUnit)}`];
         activeList.forEach((name) => {
@@ -427,6 +480,9 @@
 
         updateLegendAndMeasurements();
         draw();
+      },
+      loadData(current, previous) {
+        this.setPlotData(current, previous);
       },
       toggleTrace,
       addTrace,

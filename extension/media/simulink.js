@@ -97,12 +97,156 @@
     });
   }
 
+  function showErrorOverlay(text) {
+    let overlay = document.getElementById('error-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'error-overlay';
+      overlay.className = 'error-overlay';
+      overlay.innerHTML = `
+        <div class="error-box">
+          <div class="error-icon">&#9888;</div>
+          <div class="error-title">Cannot open Simulink model</div>
+          <div id="error-message" class="error-message"></div>
+          <button id="error-open-as-text" class="primary">Open as text</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      document.getElementById('error-open-as-text').addEventListener('click', () => {
+        vscode.postMessage({ type: 'openAsText' });
+      });
+    }
+    document.getElementById('error-message').textContent = text;
+    overlay.classList.remove('hidden');
+  }
+
+  function hideErrorOverlay() {
+    const overlay = document.getElementById('error-overlay');
+    if (overlay) overlay.classList.add('hidden');
+  }
+
+  async function captureEditorSnapshot(name) {
+    try {
+      const width = 1100;
+      const height = 750;
+      const offscreen = document.createElement('canvas');
+      offscreen.width = width;
+      offscreen.height = height;
+      const ctx = offscreen.getContext('2d');
+
+      const isLight = document.body.classList.contains('vscode-light');
+      const bg = getComputedStyle(document.body).getPropertyValue('--vscode-editor-background').trim() || (isLight ? '#ffffff' : '#1e1e1e');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
+
+      // Header bar
+      ctx.fillStyle = isLight ? '#f3f3f3' : '#252526';
+      ctx.fillRect(0, 0, width, 36);
+      ctx.fillStyle = isLight ? '#333333' : '#cccccc';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('E-IDE Simulink Editor - ' + (modelNameEl?.textContent || 'rc_circuit.slx'), 16, 22);
+
+      // Status badge
+      ctx.fillStyle = bridgeStatus === 'ready' ? '#388a34' : '#888888';
+      ctx.fillRect(width - 150, 8, 120, 20);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '11px sans-serif';
+      ctx.fillText(`MATLAB: ${bridgeStatus}`, width - 130, 22);
+
+      // Simulink Block Diagram SVG
+      const svgEl = document.getElementById('diagram-svg');
+      if (svgEl) {
+        const svgClone = svgEl.cloneNode(true);
+        const svgW = width - 260;
+        const svgH = 380;
+        svgClone.setAttribute('width', svgW);
+        svgClone.setAttribute('height', svgH);
+
+        const fg = isLight ? '#1e1e1e' : '#cccccc';
+        const blockBg = isLight ? '#f9f9f9' : '#2d2d2d';
+        const blue = isLight ? '#0066cc' : '#3794ff';
+
+        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+        style.textContent = `
+          .slx-block rect { fill: ${blockBg} !important; stroke: ${fg} !important; stroke-width: 1.5px !important; rx: 2px !important; }
+          .block-name { fill: ${fg} !important; font-size: 11px !important; font-family: sans-serif !important; font-weight: 600 !important; text-anchor: middle !important; dominant-baseline: central !important; }
+          .block-type { fill: #888888 !important; font-size: 9px !important; font-family: sans-serif !important; text-anchor: middle !important; }
+          .slx-line { stroke: ${fg} !important; stroke-width: 1.5px !important; fill: none !important; }
+          .port { fill: ${blue} !important; stroke: none !important; }
+        `;
+        svgClone.insertBefore(style, svgClone.firstChild);
+
+        const svgData = new XMLSerializer().serializeToString(svgClone);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        await new Promise((resolve) => {
+          img.onload = () => {
+            ctx.drawImage(img, 10, 46, svgW, svgH);
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+          img.onerror = resolve;
+          img.src = url;
+        });
+      }
+
+      // Sidebar parameters
+      ctx.fillStyle = isLight ? '#f8f8f8' : '#252526';
+      ctx.fillRect(width - 240, 46, 230, 380);
+      ctx.strokeStyle = isLight ? '#e5e5e5' : '#333333';
+      ctx.strokeRect(width - 240, 46, 230, 380);
+      ctx.fillStyle = isLight ? '#333333' : '#cccccc';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('MODEL PARAMETERS', width - 230, 68);
+      const rows = document.querySelectorAll('.param-table tbody tr');
+      let ry = 88;
+      rows.forEach((r, idx) => {
+        if (idx < 10) {
+          ctx.font = '10px monospace';
+          ctx.fillStyle = isLight ? '#555555' : '#aaaaaa';
+          ctx.fillText(r.textContent.replace(/\s+/g, ' ').trim(), width - 230, ry);
+          ry += 18;
+        }
+      });
+
+      // Waveform canvas
+      const waveCanvas = document.getElementById('waveform-canvas');
+      if (waveCanvas && waveCanvas.width > 0) {
+        ctx.fillStyle = isLight ? '#f3f3f3' : '#252526';
+        ctx.fillRect(0, 436, width, 28);
+        ctx.fillStyle = isLight ? '#333333' : '#cccccc';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText('SIMULINK WAVEFORMS', 16, 454);
+
+        const pills = document.querySelectorAll('.trace-pill');
+        let px = 170;
+        pills.forEach((p) => {
+          ctx.fillStyle = isLight ? '#e0e0e0' : '#383838';
+          ctx.fillRect(px, 442, 60, 16);
+          ctx.fillStyle = isLight ? '#222222' : '#ffffff';
+          ctx.font = '10px sans-serif';
+          ctx.fillText(p.textContent.trim(), px + 8, 454);
+          px += 70;
+        });
+
+        ctx.drawImage(waveCanvas, 0, 466, width, 270);
+      }
+
+      const dataUrl = offscreen.toDataURL('image/png');
+      vscode.postMessage({ type: 'snapshotResult', name, dataUrl });
+    } catch (err) {
+      vscode.postMessage({ type: 'snapshotResult', name, error: String(err) });
+    }
+  }
+
   // Handle messages from host
   window.addEventListener('message', (event) => {
     const msg = event.data;
 
     switch (msg.type) {
       case 'update':
+        hideErrorOverlay();
         currentModel = msg.model;
         currentDiff = msg.changes;
         if (modelNameEl) {
@@ -110,6 +254,14 @@
         }
         renderDiagram();
         renderParamTable();
+        if (currentDiff) {
+          setTimeout(() => {
+            currentDiff = null;
+            document.querySelectorAll('.diff-changed, .diff-added').forEach((el) => {
+              el.classList.remove('diff-changed', 'diff-added');
+            });
+          }, 3200);
+        }
         break;
 
       case 'bridgeStatus':
@@ -124,7 +276,11 @@
         break;
 
       case 'error':
-        alert(msg.error);
+        showErrorOverlay(msg.error || 'Unable to open Simulink model');
+        break;
+
+      case 'captureSnapshot':
+        captureEditorSnapshot(msg.name);
         break;
     }
   });

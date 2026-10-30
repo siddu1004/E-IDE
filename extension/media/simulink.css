@@ -54,8 +54,8 @@ header {
 }
 
 .status-badge.off {
-  background: var(--vscode-descriptionForeground);
-  color: #fff;
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.25));
+  color: var(--vscode-badge-foreground, var(--vscode-foreground));
 }
 
 .actions {
@@ -138,20 +138,37 @@ main {
 }
 
 .slx-block.diff-changed rect {
-  stroke: var(--vscode-charts-orange, #d18616);
-  stroke-width: 3;
-  animation: pulse-diff 2s infinite;
+  animation: flash-diff 3s ease-out forwards;
 }
 
 .slx-block.diff-added rect {
-  stroke: var(--vscode-charts-green, #388a34);
-  stroke-width: 3;
+  animation: flash-diff-added 3s ease-out forwards;
 }
 
-@keyframes pulse-diff {
-  0% { filter: drop-shadow(0 0 2px #d18616); }
-  50% { filter: drop-shadow(0 0 8px #d18616); }
-  100% { filter: drop-shadow(0 0 2px #d18616); }
+@keyframes flash-diff {
+  0%, 60% {
+    stroke: var(--vscode-charts-orange, #d18616);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 6px var(--vscode-charts-orange, #d18616));
+  }
+  100% {
+    stroke: var(--vscode-foreground);
+    stroke-width: 1.5;
+    filter: none;
+  }
+}
+
+@keyframes flash-diff-added {
+  0%, 60% {
+    stroke: var(--vscode-charts-green, #388a34);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 6px var(--vscode-charts-green, #388a34));
+  }
+  100% {
+    stroke: var(--vscode-foreground);
+    stroke-width: 1.5;
+    filter: none;
+  }
 }
 
 .block-name {
