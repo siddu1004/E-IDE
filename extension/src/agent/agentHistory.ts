@@ -150,6 +150,31 @@ export class AgentHistoryManager {
     }, 2000);
   }
 
+  public commitActiveTurn(filePath: string) {
+    const key = path.resolve(filePath).toLowerCase();
+    const pendingTurn = this.activeTurns.get(key);
+    if (pendingTurn) {
+      clearTimeout(pendingTurn.timer);
+      this.commitTurn(filePath, pendingTurn);
+    }
+  }
+
+  public clearHistory(filePath?: string) {
+    if (filePath) {
+      const key = path.resolve(filePath).toLowerCase();
+      const pendingTurn = this.activeTurns.get(key);
+      if (pendingTurn) clearTimeout(pendingTurn.timer);
+      this.activeTurns.delete(key);
+      this.fileHistory.delete(key);
+    } else {
+      for (const turn of this.activeTurns.values()) {
+        clearTimeout(turn.timer);
+      }
+      this.activeTurns.clear();
+      this.fileHistory.clear();
+    }
+  }
+
   /**
    * Finalizes an agent turn into history.
    */
@@ -272,10 +297,8 @@ export class AgentHistoryManager {
         const uri = vscode.Uri.file(filePath);
         const doc = await vscode.workspace.openTextDocument(uri);
         const fullRange = new vscode.Range(
-          0,
-          0,
-          doc.lineCount,
-          doc.lineAt(doc.lineCount - 1).range.end.character
+          new vscode.Position(0, 0),
+          doc.lineAt(doc.lineCount - 1).range.end
         );
         const we = new vscode.WorkspaceEdit();
         we.replace(doc.uri, fullRange, lastRecord.previousText);
@@ -285,6 +308,7 @@ export class AgentHistoryManager {
     }
 
     let elapsedSec = (Date.now() - startTime) / 1000;
+    console.log('[Undo-Log] starting resimulateCallback on:', filePath);
     if (resimulateCallback) {
       try {
         const resimTime = await resimulateCallback();
@@ -296,6 +320,7 @@ export class AgentHistoryManager {
       }
     }
 
+    console.log("[Undo-Log] finished undo successfully");
     this.postAgentBanner(
       filePath,
       `Undone: reverted "${lastRecord.description}"`,
