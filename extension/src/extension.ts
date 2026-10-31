@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { defaultConfigPath, registerInFile, unregisterInFile } from './agent/mcpConfigFile';
 import { EidMcpServer } from './agent/mcpServer';
 import { listOpenDesigns, setMatlabBridge, undoAgentChange } from './agent/tools';
 import { exportSpiceNetlist, findKicadCli } from './kicad/kicadCli';
@@ -12,6 +13,7 @@ import { SlxEditorProvider } from './simulink/slxEditorProvider';
 
 let activeMatlabBridge: MatlabBridge | undefined;
 let activeMcpServer: EidMcpServer | undefined;
+let registeredMcpConfig = false;
 
 export function activate(context: vscode.ExtensionContext) {
   // 1. Editors
@@ -36,7 +38,19 @@ export function activate(context: vscode.ExtensionContext) {
   // 3. MCP Server inside extension
   const mcpServer = new EidMcpServer(context);
   activeMcpServer = mcpServer;
-  mcpServer.start().catch((err) => {
+  // Point Antigravity at this session's port and token so the agent finds E-IDE without copy-paste.
+  const autoRegister = () =>
+    process.env.EIDE_TEST !== '1' &&
+    vscode.workspace.getConfiguration('eide.agent').get<boolean>('autoRegister', true);
+  mcpServer.start().then((port) => {
+    if (!autoRegister()) return;
+    try {
+      registerInFile(defaultConfigPath(), port, mcpServer.getToken());
+      registeredMcpConfig = true;
+    } catch (err: any) {
+      vscode.window.showWarningMessage(`E-IDE could not update Antigravity's MCP config: ${err.message}`);
+    }
+  }).catch((err) => {
     vscode.window.showErrorMessage(`Failed to start E-IDE MCP server: ${err.message}`);
   });
 
@@ -192,6 +206,9 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  if (registeredMcpConfig) {
+    try { unregisterInFile(defaultConfigPath()); } catch { /* best effort on shutdown */ }
+  }
   if (activeMcpServer) {
     activeMcpServer.stop();
   }

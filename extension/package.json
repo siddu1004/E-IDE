@@ -96,6 +96,11 @@
     "configuration": {
       "title": "E-IDE",
       "properties": {
+        "eide.agent.autoRegister": {
+          "type": "boolean",
+          "default": true,
+          "description": "Add this session's E-IDE server to Antigravity's mcp_config.json on startup and remove it on exit, so the agent can use E-IDE without copying the config by hand."
+        },
         "eide.agent.requireApproval": {
           "type": "boolean",
           "default": false,
