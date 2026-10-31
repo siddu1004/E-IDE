@@ -166,27 +166,37 @@ export async function runErc(options: {
   }
 
   const tempOut = path.join(os.tmpdir(), `kicad-erc-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-  const timeout = options.timeoutMs ?? 30000;
+  const timeout = options.timeoutMs ?? 45000;
 
   try {
+    let stderr = '';
     const exitCode = await new Promise<number | null>((resolve) => {
       const child = child_process.spawn(
         options.cliPath,
         ['sch', 'erc', '--format', 'json', '-o', tempOut, options.schPath],
-        { stdio: 'ignore', windowsHide: true },
+        {
+          cwd: path.dirname(options.schPath),
+          stdio: ['ignore', 'ignore', 'pipe'],
+          windowsHide: true,
+        },
       );
+
+      child.stderr?.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
 
       const timer = setTimeout(() => {
         try { child.kill(); } catch {}
         resolve(null);
       }, timeout);
 
-      child.on('exit', (code) => {
+      child.on('close', (code) => {
         clearTimeout(timer);
         resolve(code);
       });
-      child.on('error', () => {
+      child.on('error', (err) => {
         clearTimeout(timer);
+        stderr += ` Spawn error: ${err.message}`;
         resolve(null);
       });
     });
@@ -196,7 +206,7 @@ export async function runErc(options: {
         success: false,
         exitCode,
         report: { kicadVersion: '', date: '', coordinateUnits: 'mm', violations: [], errorCount: 0, warningCount: 0 },
-        error: 'kicad-cli sch erc did not generate report output',
+        error: `kicad-cli sch erc did not generate report output (exitCode=${exitCode})${stderr ? ': ' + stderr : ''}`,
       };
     }
 

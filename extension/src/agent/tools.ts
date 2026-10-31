@@ -15,6 +15,7 @@ import { findLtspice, runLtspiceSimulation, SimulationRunResult } from '../ltspi
 import { BridgeStatus, MatlabBridge, ScriptRunResult, SimulateResult } from '../matlab/matlabBridge';
 import { parseSlx, SlxModel } from '../simulink/slxParser';
 import { AgentHistoryManager } from './agentHistory';
+import { TestHook } from '../testHook';
 import {
   CompactSimulationSummary,
   downsampleSeries,
@@ -38,15 +39,42 @@ export function registerEditorWebview(filePath: string, webview: vscode.Webview)
   };
 }
 
+export function postToEditorWebview(filePath: string, msg: any) {
+  const normPath = path.resolve(filePath).toLowerCase();
+  const webview = activeSimulationWebviews.get(normPath);
+  if (webview) {
+    TestHook.recordPostMessageForUri(filePath, msg);
+    try {
+      webview.postMessage(msg);
+    } catch {}
+  }
+}
+
+async function readFileWithRetry(filePath: string, maxAttempts = 15, delayMs = 150): Promise<Buffer> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return fs.readFileSync(filePath);
+    } catch (err: any) {
+      if ((err.code === 'EBUSY' || err.code === 'EACCES') && attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return fs.readFileSync(filePath);
+}
+
 export function assertPathInWorkspace(filePath: string): string {
   const resolved = path.resolve(filePath);
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
-    return resolved;
+    throw new Error(`Security violation: No workspace folder is open. Cannot access '${filePath}'.`);
   }
+  const normResolved = path.normalize(resolved).toLowerCase();
   const isInWorkspace = workspaceFolders.some((wf) => {
-    const root = path.resolve(wf.uri.fsPath);
-    const rel = path.relative(root, resolved);
+    const root = path.normalize(wf.uri.fsPath).toLowerCase();
+    const rel = path.relative(root, normResolved);
     return !rel.startsWith('..') && !path.isAbsolute(rel);
   });
   if (!isInWorkspace) {
@@ -247,9 +275,8 @@ async function runSimulationRaw(filePath: string): Promise<SimulationRunResult> 
     timeoutMs: timeoutSec * 1000,
   });
 
-  const webview = activeSimulationWebviews.get(doc.uri.fsPath.toLowerCase());
-  if (webview && result.raw) {
-    webview.postMessage({
+  if (result.raw) {
+    postToEditorWebview(doc.uri.fsPath, {
       type: 'simulationResult',
       success: result.success,
       durationMs: result.durationMs,
@@ -415,10 +442,9 @@ async function simulateKicadRaw(filePath: string): Promise<KicadSimResult> {
     schContent: doc.getText(),
   });
 
-  const webview = activeSimulationWebviews.get(doc.uri.fsPath.toLowerCase());
-  if (webview && result.runResult?.raw) {
+  if (result.runResult?.raw) {
     const raw = result.runResult.raw;
-    webview.postMessage({
+    postToEditorWebview(doc.uri.fsPath, {
       type: 'simulationResult',
       success: result.success,
       durationMs: result.runResult.durationMs,
@@ -511,16 +537,13 @@ export async function setBlockParam(
   const res = await bridge.setParam(resolved, block, param, value);
 
   // Update open webview
-  const webview = activeSimulationWebviews.get(resolved.toLowerCase());
-  if (webview) {
-    const buf = fs.readFileSync(resolved);
-    const model = parseSlx(buf, path.basename(resolved, '.slx'));
-    webview.postMessage({
-      type: 'update',
-      model,
-      fileName: path.basename(resolved),
-    });
-  }
+  const buf = await readFileWithRetry(resolved);
+  const model = parseSlx(buf, path.basename(resolved, '.slx'));
+  postToEditorWebview(resolved, {
+    type: 'update',
+    model,
+    fileName: path.basename(resolved),
+  });
 
   // Re-simulate
   const simStartTime = Date.now();
@@ -558,16 +581,13 @@ export async function connectBlocks(
 
   const res = await bridge.addLine(resolved, src, dst);
 
-  const webview = activeSimulationWebviews.get(resolved.toLowerCase());
-  if (webview) {
-    const buf = fs.readFileSync(resolved);
-    const model = parseSlx(buf, path.basename(resolved, '.slx'));
-    webview.postMessage({
-      type: 'update',
-      model,
-      fileName: path.basename(resolved),
-    });
-  }
+  const buf = await readFileWithRetry(resolved);
+  const model = parseSlx(buf, path.basename(resolved, '.slx'));
+  postToEditorWebview(resolved, {
+    type: 'update',
+    model,
+    fileName: path.basename(resolved),
+  });
 
   historyMgr.postAgentBanner(resolved, `Agent: connected ${src} -> ${dst}`);
   return res;
@@ -595,10 +615,9 @@ export async function simulateModel(
     }
   }
 
-  const webview = activeSimulationWebviews.get(resolved.toLowerCase());
-  if (webview && res.signals.length > 0) {
+  if (res.signals.length > 0) {
     const variables = ['time', ...res.signals.map((s) => s.name)];
-    webview.postMessage({
+    postToEditorWebview(resolved, {
       type: 'simulationResult',
       current: {
         plotName: 'Simulink Simulation',
@@ -607,6 +626,8 @@ export async function simulateModel(
         series: seriesObj,
       },
       success: true,
+      durationMs: 0,
+      bannerText: 'Simulation finished',
     });
   }
 
@@ -692,6 +713,15 @@ export async function getWaveform(
 export async function undoAgentChange(filePath: string): Promise<boolean> {
   const resolved = assertPathInWorkspace(filePath);
   const ext = path.extname(resolved).toLowerCase();
+
+  if (ext === '.slx') {
+    try {
+      const bridge = getMatlabBridge();
+      if (bridge.getStatus() === 'ready') {
+        await bridge.closeModel(resolved);
+      }
+    } catch {}
+  }
 
   return await AgentHistoryManager.getInstance().undoLastChange(resolved, async () => {
     const startTime = Date.now();

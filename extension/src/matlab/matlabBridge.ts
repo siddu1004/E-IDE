@@ -97,7 +97,7 @@ export class MatlabBridge {
     this.bridgeScriptDir = options?.bridgeScriptDir || path.resolve(__dirname, '../../../matlab');
     if (options?.port) this.port = options.port;
     if (options?.token) this.token = options.token;
-    this.connectTimeoutMs = options?.connectTimeoutMs || 35000;
+    this.connectTimeoutMs = options?.connectTimeoutMs || 60000;
     this.commandTimeoutMs = options?.commandTimeoutMs || 120000;
   }
 
@@ -456,6 +456,24 @@ export class MatlabBridge {
       } catch {
         // ignore
       }
+      await new Promise<void>((resolve) => {
+        if (proc.exitCode !== null) {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(() => {
+          try {
+            if (process.platform === 'win32' && proc.pid) {
+              child_process.execSync(`taskkill /F /PID ${proc.pid}`, { stdio: 'ignore' });
+            }
+          } catch {}
+          resolve();
+        }, 5000);
+        proc.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     }
 
     this.cleanup();

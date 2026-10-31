@@ -89,6 +89,22 @@ export class TestHook {
     return TestHook.handles.get(uri.fsPath.toLowerCase());
   }
 
+  public static recordPostMessageForUri(uriOrPath: vscode.Uri | string, msg: any): void {
+    if (!TestHook.isEnabled()) return;
+    const fsPath = typeof uriOrPath === 'string' ? uriOrPath : uriOrPath.fsPath;
+    const key = fsPath.toLowerCase();
+    const handle = TestHook.handles.get(key);
+    if (handle) {
+      handle.postedMessages.push(msg);
+      const curListeners = TestHook.messageListeners.get(key) || [];
+      for (const l of [...curListeners]) {
+        try {
+          l(msg);
+        } catch {}
+      }
+    }
+  }
+
   public static getAllHandles(): TestEditorHandle[] {
     return Array.from(TestHook.handles.values());
   }

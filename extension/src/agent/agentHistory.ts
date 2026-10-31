@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { parseSlx } from '../simulink/slxParser';
+import { TestHook } from '../testHook';
 
 export interface AgentChangeRecord {
   id: string;
@@ -21,6 +22,36 @@ interface ActiveTurn {
   initialText?: string;
   backupPath?: string;
   fileType: 'asc' | 'kicad_sch' | 'slx';
+}
+
+async function copyFileWithRetry(src: string, dst: string, maxAttempts = 15, delayMs = 150): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      fs.copyFileSync(src, dst);
+      return;
+    } catch (err: any) {
+      if ((err.code === 'EBUSY' || err.code === 'EACCES') && attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+async function readFileWithRetry(filePath: string, maxAttempts = 15, delayMs = 150): Promise<Buffer> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return fs.readFileSync(filePath);
+    } catch (err: any) {
+      if ((err.code === 'EBUSY' || err.code === 'EACCES') && attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return fs.readFileSync(filePath);
 }
 
 export class AgentHistoryManager {
@@ -89,7 +120,7 @@ export class AgentHistoryManager {
           `eide_backup_${Date.now()}_${path.basename(filePath)}`
         );
         if (fs.existsSync(filePath)) {
-          fs.copyFileSync(filePath, backupPath);
+          await copyFileWithRetry(filePath, backupPath);
         }
       } else {
         const uri = vscode.Uri.file(filePath);
@@ -159,7 +190,7 @@ export class AgentHistoryManager {
 
     const history = this.getHistory(filePath);
 
-    webview.postMessage({
+    const msg = {
       type: 'agentBanner',
       text: fullText,
       hasUndo: true,
@@ -168,21 +199,27 @@ export class AgentHistoryManager {
         time: h.timeFormatted,
         description: h.description,
       })),
-    });
+    };
+
+    TestHook.recordPostMessageForUri(filePath, msg);
+    webview.postMessage(msg);
   }
 
   private postHistoryUpdate(filePath: string, history: AgentChangeRecord[]) {
     const webview = this.getWebview(filePath);
     if (!webview) return;
 
-    webview.postMessage({
+    const msg = {
       type: 'agentHistoryUpdate',
       history: history.map((h) => ({
         id: h.id,
         time: h.timeFormatted,
         description: h.description,
       })),
-    });
+    };
+
+    TestHook.recordPostMessageForUri(filePath, msg);
+    webview.postMessage(msg);
   }
 
   /**
@@ -193,6 +230,14 @@ export class AgentHistoryManager {
     resimulateCallback?: () => Promise<number | void>
   ): Promise<boolean> {
     const key = path.resolve(filePath).toLowerCase();
+
+    // If an active turn is currently pending debounced commit, flush it now
+    const pendingTurn = this.activeTurns.get(key);
+    if (pendingTurn) {
+      clearTimeout(pendingTurn.timer);
+      this.commitTurn(filePath, pendingTurn);
+    }
+
     const history = this.fileHistory.get(key);
     if (!history || history.length === 0) {
       vscode.window.showInformationMessage('No agent changes to undo for this file.');
@@ -206,14 +251,14 @@ export class AgentHistoryManager {
 
     if (lastRecord.fileType === 'slx') {
       if (lastRecord.previousBackupPath && fs.existsSync(lastRecord.previousBackupPath)) {
-        fs.copyFileSync(lastRecord.previousBackupPath, filePath);
+        await copyFileWithRetry(lastRecord.previousBackupPath, filePath);
         try {
           fs.unlinkSync(lastRecord.previousBackupPath);
         } catch {}
 
         const webview = this.getWebview(filePath);
         if (webview) {
-          const buf = fs.readFileSync(filePath);
+          const buf = await readFileWithRetry(filePath);
           const model = parseSlx(buf, path.basename(filePath, '.slx'));
           webview.postMessage({
             type: 'update',

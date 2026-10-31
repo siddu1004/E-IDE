@@ -241,6 +241,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
       // Save document if dirty
       if (document.isDirty) {
         await document.save();
+        await new Promise((r) => setTimeout(r, 200));
       }
 
       const res = await runErc({
@@ -251,6 +252,7 @@ export class KicadEditorProvider implements vscode.CustomTextEditorProvider {
       if (isDisposed) return;
 
       if (!res.success) {
+        safePostMessage({ type: 'ercError', error: res.error });
         vscode.window.showErrorMessage(`ERC failed: ${res.error}`);
         return;
       }

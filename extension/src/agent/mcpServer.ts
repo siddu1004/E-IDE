@@ -14,6 +14,7 @@ export class EidMcpServer {
   private port: number = 0;
   private statusBarItem: vscode.StatusBarItem;
   private isConnected: boolean = false;
+  private sessions = new Map<string, { transport: StreamableHTTPServerTransport; mcpServer: McpServer }>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.token = crypto.randomBytes(24).toString('hex');
@@ -57,17 +58,6 @@ export class EidMcpServer {
   }
 
   public async start(): Promise<number> {
-    this.mcpServer = new McpServer({
-      name: 'eide',
-      version: '0.0.1',
-    });
-
-    this.registerTools(this.mcpServer);
-
-    this.transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => crypto.randomUUID(),
-    });
-
     this.server = http.createServer(async (req, res) => {
       // 1. Origin check: Reject untrusted origins
       const origin = req.headers['origin'];
@@ -97,8 +87,31 @@ export class EidMcpServer {
         this.updateStatusBar();
       }
 
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      let session = sessionId ? this.sessions.get(sessionId) : undefined;
+
       try {
-        await this.transport!.handleRequest(req, res);
+        if (!session) {
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => crypto.randomUUID(),
+          });
+          const mcpServer = new McpServer({
+            name: 'eide',
+            version: '0.0.1',
+          });
+          this.registerTools(mcpServer);
+          await mcpServer.connect(transport);
+
+          await transport.handleRequest(req, res);
+          if (transport.sessionId) {
+            this.sessions.set(transport.sessionId, { transport, mcpServer });
+          }
+        } else {
+          await session.transport.handleRequest(req, res);
+          if (req.method === 'DELETE') {
+            this.sessions.delete(sessionId!);
+          }
+        }
       } catch (err: any) {
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -106,8 +119,6 @@ export class EidMcpServer {
         }
       }
     });
-
-    await this.mcpServer.connect(this.transport);
 
     return new Promise<number>((resolve, reject) => {
       this.server!.listen(0, '127.0.0.1', () => {
@@ -341,9 +352,12 @@ export class EidMcpServer {
   }
 
   public async stop(): Promise<void> {
-    if (this.transport) {
-      await this.transport.close();
+    for (const s of this.sessions.values()) {
+      try {
+        await s.transport.close();
+      } catch {}
     }
+    this.sessions.clear();
     if (this.server) {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
     }
