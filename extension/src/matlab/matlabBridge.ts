@@ -65,6 +65,29 @@ export interface MatlabBridgeOptions {
   commandTimeoutMs?: number;
 }
 
+export const ALLOWED_SIMULINK_LIBRARIES = [
+  'simulink/',
+  'simscape/',
+  'fl_lib/',
+  'nesl_utility/',
+  'sps/',
+  'powerlib',
+];
+
+export function validateSimulinkLibraryPath(libPath: string): string {
+  const norm = libPath.trim().toLowerCase();
+  const isAllowed = ALLOWED_SIMULINK_LIBRARIES.some((prefix) => norm.startsWith(prefix));
+  if (!isAllowed) {
+    throw new Error(
+      `Security violation: Simulink library '${libPath}' is not in the allowed library whitelist (simulink, simscape, fl_lib).`
+    );
+  }
+  if (/[\r\n;()"'`]/.test(libPath)) {
+    throw new Error(`Security violation: Invalid characters in library path '${libPath}'.`);
+  }
+  return libPath.trim();
+}
+
 export class MatlabBridge {
   private status: BridgeStatus = 'off';
   private matlabProcess?: child_process.ChildProcess;
@@ -396,6 +419,28 @@ export class MatlabBridge {
 
   public async deleteLine(modelPath: string, src: string, dst: string): Promise<{ deleted: boolean }> {
     return this.sendCommand('deleteLine', { path: modelPath, src, dst });
+  }
+
+  public async createModel(modelPath: string): Promise<{ model: string; created: boolean }> {
+    return this.sendCommand('createModel', { path: modelPath });
+  }
+
+  public async addBlock(
+    modelPath: string,
+    libraryPath: string,
+    name: string,
+    params?: Record<string, string>
+  ): Promise<{ block: string; added: boolean }> {
+    validateSimulinkLibraryPath(libraryPath);
+    return this.sendCommand('addBlock', { path: modelPath, libraryPath, name, params });
+  }
+
+  public async removeBlock(modelPath: string, name: string): Promise<{ block: string; removed: boolean }> {
+    return this.sendCommand('removeBlock', { path: modelPath, name });
+  }
+
+  public async autoLayout(modelPath: string): Promise<{ model: string; arranged: boolean }> {
+    return this.sendCommand('autoLayout', { path: modelPath });
   }
 
   public async simulate(modelPath: string, stopTime?: number | string): Promise<SimulateResult> {

@@ -110,6 +110,18 @@ function resp = handleMessage(rawJson, expectedToken)
             case 'addLine'
                 resp = executeAddLine(args);
 
+            case 'createModel'
+                resp = executeCreateModel(args);
+
+            case 'addBlock'
+                resp = executeAddBlock(args);
+
+            case 'removeBlock'
+                resp = executeRemoveBlock(args);
+
+            case 'autoLayout'
+                resp = executeAutoLayout(args);
+
             case 'enableLogging'
                 resp = executeEnableLogging(args);
 
@@ -344,6 +356,77 @@ function resp = executeDeleteLine(args)
     save_system(modelName);
 
     resp = struct('status', 'ok', 'result', struct('deleted', true, 'saved', true));
+end
+
+function resp = executeCreateModel(args)
+    if ~isfield(args, 'path') || isempty(args.path)
+        error('EIDE:InvalidArgument', 'createModel requires path');
+    end
+    [~, modelName, ~] = fileparts(args.path);
+    if bdIsLoaded(modelName)
+        close_system(modelName, 0);
+    end
+    new_system(modelName);
+    save_system(modelName, args.path);
+    resp = struct('status', 'ok', 'result', struct('model', modelName, 'created', true));
+end
+
+function resp = executeAddBlock(args)
+    if ~isfield(args, 'path') || ~isfield(args, 'libraryPath') || ~isfield(args, 'name')
+        error('EIDE:InvalidArgument', 'addBlock requires path, libraryPath, and name');
+    end
+    modelName = ensureModelLoaded(args.path);
+    destBlock = [modelName '/' args.name];
+
+    try
+        existing = get_param(destBlock, 'Handle');
+        if ishandle(existing) && existing > 0
+            delete_block(destBlock);
+        end
+    catch
+    end
+
+    add_block(args.libraryPath, destBlock);
+
+    if isfield(args, 'params') && isstruct(args.params)
+        fn = fieldnames(args.params);
+        for k = 1:numel(fn)
+            paramName = fn{k};
+            paramVal = args.params.(paramName);
+            if ischar(paramVal) || isstring(paramVal)
+                set_param(destBlock, paramName, char(paramVal));
+            elseif isnumeric(paramVal)
+                set_param(destBlock, paramName, num2str(paramVal));
+            end
+        end
+    end
+
+    save_system(modelName);
+    resp = struct('status', 'ok', 'result', struct('block', args.name, 'added', true));
+end
+
+function resp = executeRemoveBlock(args)
+    if ~isfield(args, 'path') || ~isfield(args, 'name')
+        error('EIDE:InvalidArgument', 'removeBlock requires path and name');
+    end
+    modelName = ensureModelLoaded(args.path);
+    destBlock = [modelName '/' args.name];
+    delete_block(destBlock);
+    save_system(modelName);
+    resp = struct('status', 'ok', 'result', struct('block', args.name, 'removed', true));
+end
+
+function resp = executeAutoLayout(args)
+    if ~isfield(args, 'path') || isempty(args.path)
+        error('EIDE:InvalidArgument', 'autoLayout requires path');
+    end
+    modelName = ensureModelLoaded(args.path);
+    try
+        Simulink.BlockDiagram.arrangeSystem(modelName);
+    catch
+    end
+    save_system(modelName);
+    resp = struct('status', 'ok', 'result', struct('model', modelName, 'arranged', true));
 end
 
 function resp = executeEnableLogging(args)

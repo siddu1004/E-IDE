@@ -65,6 +65,22 @@ describe('MatlabBridge Protocol & Authentication', () => {
                   );
                   break;
 
+                case 'createModel':
+                  socket.write(JSON.stringify({ status: 'ok', result: { model: 'test_model', created: true } }) + '\n');
+                  break;
+
+                case 'addBlock':
+                  socket.write(JSON.stringify({ status: 'ok', result: { block: req.args.name, added: true } }) + '\n');
+                  break;
+
+                case 'removeBlock':
+                  socket.write(JSON.stringify({ status: 'ok', result: { block: req.args.name, removed: true } }) + '\n');
+                  break;
+
+                case 'autoLayout':
+                  socket.write(JSON.stringify({ status: 'ok', result: { model: 'test_model', arranged: true } }) + '\n');
+                  break;
+
                 case 'setParam':
                   socket.write(
                     JSON.stringify({
@@ -190,6 +206,33 @@ describe('MatlabBridge Protocol & Authentication', () => {
     const res = await bridge.runScript('sample_test.m');
     assert.match(res.output, /Result = 42/);
     assert.deepEqual(res.figures, ['/tmp/fig1.png']);
+
+    await bridge.stop();
+  });
+
+  it('handles createModel, addBlock, removeBlock, autoLayout, and validates libraries', async () => {
+    const bridge = new MatlabBridge();
+    await bridge.connectDirect(serverPort, validToken);
+
+    const created = await bridge.createModel('test_model.slx');
+    assert.equal(created.created, true);
+
+    const added = await bridge.addBlock('test_model.slx', 'simulink/Continuous/Integrator', 'Int1');
+    assert.equal(added.added, true);
+
+    // Security check: disallowed library
+    await assert.rejects(
+      async () => {
+        await bridge.addBlock('test_model.slx', 'malicious/library/block', 'BadBlock');
+      },
+      /Security violation/
+    );
+
+    const removed = await bridge.removeBlock('test_model.slx', 'Int1');
+    assert.equal(removed.removed, true);
+
+    const arranged = await bridge.autoLayout('test_model.slx');
+    assert.equal(arranged.arranged, true);
 
     await bridge.stop();
   });
