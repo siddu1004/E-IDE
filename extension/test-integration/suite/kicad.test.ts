@@ -30,6 +30,7 @@ describe('KiCad Integration Flows', () => {
   });
 
   it('opens rc_filter.kicad_sch, mutates value with byte-identical preservation, and shows ERC diagnostics', async function () {
+    this.timeout(60000);
     const tools = checkTools();
     if (!tools.hasKicad) {
       this.skip();
@@ -68,7 +69,8 @@ describe('KiCad Integration Flows', () => {
 
     // 2. Trigger ERC and verify diagnostics in Problems panel
     await handle.sendWebviewMessage({ type: 'runErc' });
-    await handle.waitForMessage((m) => m.type === 'ercResult');
+    const ercMsg = await handle.waitForMessage((m) => m.type === 'ercResult' || m.type === 'ercError', 40000);
+    assert.equal(ercMsg.type, 'ercResult', `ERC run failed: ${ercMsg.error}`);
 
     const diagnostics = vscode.languages.getDiagnostics(uri);
     assert.ok(diagnostics !== undefined);

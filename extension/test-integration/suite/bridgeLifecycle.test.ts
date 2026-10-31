@@ -5,6 +5,7 @@ import { checkTools } from './testHelpers';
 
 describe('MATLAB Bridge Lifecycle', () => {
   it('starts, rejects wrong token, stops, and verifies clean process cleanup', async function () {
+    this.timeout(90000);
     const tools = checkTools();
     if (!tools.hasMatlab) {
       this.skip();

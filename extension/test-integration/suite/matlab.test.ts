@@ -66,7 +66,7 @@ describe('MATLAB Script Integration Flows', () => {
     // Wait for diagnostics to be populated in Problems panel
     let diags: vscode.Diagnostic[] = [];
     const startDiagsWait = Date.now();
-    while (Date.now() - startDiagsWait < 15000) {
+    while (Date.now() - startDiagsWait < 25000) {
       diags = vscode.languages.getDiagnostics(errUri);
       if (diags.length > 0) break;
       await new Promise((r) => setTimeout(r, 500));

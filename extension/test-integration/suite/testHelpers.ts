@@ -29,7 +29,8 @@ export async function setupTestWorkspace(): Promise<{ tempDir: string; samplesDi
     throw new Error(`Cannot locate samples source directory at ${samplesSrc}`);
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eide-test-'));
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.tmpdir();
+  const tempDir = fs.mkdtempSync(path.join(workspaceRoot, 'eide-test-'));
   const samplesDir = path.join(tempDir, 'samples');
   fs.cpSync(samplesSrc, samplesDir, { recursive: true });
 

@@ -1,8 +1,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { runTests } from '@vscode/test-electron';
 
 async function main() {
+  const testWorkspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vsc-test-workspace-'));
+  const testUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vsc-test-user-'));
+  const testExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vsc-test-ext-'));
+
   try {
     delete process.env.ELECTRON_RUN_AS_NODE;
 
@@ -22,10 +27,13 @@ async function main() {
       extensionDevelopmentPath,
       extensionTestsPath,
       launchArgs: [
+        testWorkspaceDir,
         '--disable-gpu',
         '--disable-extensions',
         '--disable-workspace-trust',
         '--skip-welcome',
+        `--user-data-dir=${testUserDataDir}`,
+        `--extensions-dir=${testExtensionsDir}`,
       ],
       extensionTestsEnv: {
         EIDE_TEST: '1',
@@ -35,6 +43,12 @@ async function main() {
   } catch (err) {
     console.error('[IntegrationTest] Integration tests failed:', err);
     process.exit(1);
+  } finally {
+    try {
+      fs.rmSync(testWorkspaceDir, { recursive: true, force: true, maxRetries: 3 });
+      fs.rmSync(testUserDataDir, { recursive: true, force: true, maxRetries: 3 });
+      fs.rmSync(testExtensionsDir, { recursive: true, force: true, maxRetries: 3 });
+    } catch {}
   }
 }
 

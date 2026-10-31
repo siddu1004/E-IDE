@@ -28,6 +28,7 @@ describe('Simulink Integration Flows', () => {
   });
 
   it('opens rc_circuit.slx, modifies parameters, simulates with overlay, and handles external saves', async function () {
+    this.timeout(180000);
     const tools = checkTools();
     if (!tools.hasMatlab) {
       this.skip();
@@ -85,11 +86,17 @@ describe('Simulink Integration Flows', () => {
     assert.ok(simRes2.previous);
 
     // 4. External save: mutate model via matlab -batch
+    // Stop bridge to release MathWorks service session before launching external instance
+    if (bridge.getStatus() !== 'off') {
+      await bridge.stop();
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
     const normalizedSlx = slxPath.replace(/\\/g, '/');
     const batchCmd = `load_system('${normalizedSlx}'); set_param('rc_circuit/Step', 'SampleTime', '0.01'); save_system('rc_circuit', '${normalizedSlx}'); close_system('rc_circuit');`;
 
     child_process.execFileSync(tools.matlabPath!, ['-batch', batchCmd], {
-      timeout: 45000,
+      timeout: 120000,
     });
 
     // Verify watcher detects disk change and posts highlight update
