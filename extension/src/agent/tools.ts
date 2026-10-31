@@ -71,11 +71,13 @@ export function assertPathInWorkspace(filePath: string): string {
   if (!workspaceFolders || workspaceFolders.length === 0) {
     throw new Error(`Security violation: No workspace folder is open. Cannot access '${filePath}'.`);
   }
-  const normResolved = path.normalize(resolved).toLowerCase();
+  // Resolve symlinks/junctions so a link inside the workspace cannot point outside it.
+  const real = (p: string) => { try { return fs.realpathSync.native(p); } catch { return p; } };
+  const normResolved = path.normalize(real(resolved)).toLowerCase();
   const isInWorkspace = workspaceFolders.some((wf) => {
-    const root = path.normalize(wf.uri.fsPath).toLowerCase();
+    const root = path.normalize(real(wf.uri.fsPath)).toLowerCase();
     const rel = path.relative(root, normResolved);
-    return !rel.startsWith('..') && !path.isAbsolute(rel);
+    return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
   });
   if (!isInWorkspace) {
     throw new Error(`Security violation: file path '${filePath}' is outside the open workspace folders.`);

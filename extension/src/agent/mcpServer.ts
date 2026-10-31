@@ -62,10 +62,10 @@ export class EidMcpServer {
       // 1. Origin check: Reject untrusted origins
       const origin = req.headers['origin'];
       if (origin) {
-        const isAllowed =
-          origin.startsWith('vscode-webview://') ||
-          origin.startsWith('http://127.0.0.1') ||
-          origin.startsWith('http://localhost');
+        // Compare the parsed hostname: a prefix check would let http://localhost.evil.com through.
+        let host = '';
+        try { host = new URL(origin).hostname; } catch { /* malformed origin stays rejected */ }
+        const isAllowed = host === '127.0.0.1' || host === 'localhost';
         if (!isAllowed) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Forbidden origin' }));
@@ -75,7 +75,9 @@ export class EidMcpServer {
 
       // 2. Bearer token check
       const auth = req.headers['authorization'];
-      if (auth !== `Bearer ${this.token}`) {
+      const expected = Buffer.from(`Bearer ${this.token}`);
+      const given = Buffer.from(String(auth ?? ''));
+      if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Unauthorized: invalid or missing bearer token' }));
         return;
