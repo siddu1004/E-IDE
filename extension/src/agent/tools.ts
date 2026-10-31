@@ -21,6 +21,16 @@ import {
   downsampleSeries,
   summarizeSimulationData,
 } from './waveformSummary';
+import {
+  addComponentToAsc,
+  addDirectiveToAsc,
+  connectPinsInAsc,
+  createEmptySchematic,
+  removeComponentFromAsc,
+} from './schematicBuilder';
+import { DesignSpec, evaluateSpec, SpecCheckResult } from './specChecker';
+import { runTuner, TuneParamConfig, TuneResult } from './tuner';
+import { validateSimulinkLibraryPath } from '../matlab/matlabBridge';
 
 // Active editor listeners map to post simulation results directly into open webviews
 export const activeSimulationWebviews = new Map<string, vscode.Webview>();
@@ -191,7 +201,8 @@ export async function getSchematic(filePath: string): Promise<AscSchematic> {
 export async function setComponentValue(
   filePath: string,
   id: string,
-  value: string
+  value: string,
+  skipResimulate?: boolean
 ): Promise<{ success: boolean; summary?: CompactSimulationSummary }> {
   const resolved = assertPathInWorkspace(filePath);
   await checkAgentApproval(resolved, `Set ${id} to ${value}`);
@@ -228,6 +239,10 @@ export async function setComponentValue(
   }
 
   await doc.save();
+
+  if (skipResimulate) {
+    return { success: true };
+  }
 
   // Re-simulate after edit and post banner
   const simStartTime = Date.now();
@@ -347,7 +362,8 @@ export async function setKicadProperty(
   filePath: string,
   ref: string,
   key: string,
-  value: string
+  value: string,
+  skipResimulate?: boolean
 ): Promise<{ success: boolean; summary?: CompactSimulationSummary }> {
   const resolved = assertPathInWorkspace(filePath);
   await checkAgentApproval(resolved, `Set ${ref} ${key} to ${value}`);
@@ -378,6 +394,10 @@ export async function setKicadProperty(
   }
 
   await doc.save();
+
+  if (skipResimulate) {
+    return { success: true };
+  }
 
   // Re-simulate if possible
   const simStartTime = Date.now();
@@ -736,4 +756,375 @@ export async function undoAgentChange(filePath: string): Promise<boolean> {
     }
     return (Date.now() - startTime) / 1000;
   });
+}
+
+
+// --- Milestone 6: Design Synthesis & Tuning Tools ---
+
+export async function createSchematic(filePath: string): Promise<{ created: boolean; filePath: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext !== '.asc' && ext !== '.kicad_sch') {
+    throw new Error('createSchematic only supports .asc and .kicad_sch files');
+  }
+
+  await checkAgentApproval(resolved, `Create schematic ${path.basename(resolved)}`);
+  const initialText = createEmptySchematic(ext as '.asc' | '.kicad_sch');
+  fs.writeFileSync(resolved, initialText, 'utf8');
+
+  const uri = vscode.Uri.file(resolved);
+  const viewType = ext === '.asc' ? 'eide.ltspiceSchematic' : 'eide.kicadSchematic';
+  await vscode.commands.executeCommand('vscode.openWith', uri, viewType);
+
+  AgentHistoryManager.getInstance().postAgentBanner(resolved, `Agent: created empty schematic ${path.basename(resolved)}`);
+  return { created: true, filePath: resolved };
+}
+
+export async function addComponent(
+  filePath: string,
+  type: string,
+  value: string,
+  near?: string
+): Promise<{ ref: string; filePath: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext !== '.asc') {
+    throw new Error('addComponent currently supports .asc files');
+  }
+
+  await checkAgentApproval(resolved, `Add ${type} (${value})`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  await historyMgr.recordBeforeChange(resolved, `Add ${type} (${value})`);
+
+  const uri = vscode.Uri.file(resolved);
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const currentText = doc.getText();
+
+  const res = addComponentToAsc(currentText, type, value, near);
+
+  const edit = new vscode.WorkspaceEdit();
+  const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(currentText.length));
+  edit.replace(uri, fullRange, res.newContent);
+  await vscode.workspace.applyEdit(edit);
+  await doc.save();
+
+  historyMgr.postAgentBanner(resolved, `Agent: added ${res.ref} (${type} ${value})`);
+  return { ref: res.ref, filePath: resolved };
+}
+
+export async function connect(
+  filePath: string,
+  pinA: string,
+  pinB: string
+): Promise<{ connected: boolean; pinA: string; pinB: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext !== '.asc') {
+    throw new Error('connect currently supports .asc files');
+  }
+
+  await checkAgentApproval(resolved, `Connect ${pinA} -> ${pinB}`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  await historyMgr.recordBeforeChange(resolved, `Connect ${pinA} -> ${pinB}`);
+
+  const uri = vscode.Uri.file(resolved);
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const currentText = doc.getText();
+
+  const newContent = connectPinsInAsc(currentText, pinA, pinB);
+
+  const edit = new vscode.WorkspaceEdit();
+  const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(currentText.length));
+  edit.replace(uri, fullRange, newContent);
+  await vscode.workspace.applyEdit(edit);
+  await doc.save();
+
+  historyMgr.postAgentBanner(resolved, `Agent: connected ${pinA} -> ${pinB}`);
+  return { connected: true, pinA, pinB };
+}
+
+export async function removeComponent(
+  filePath: string,
+  ref: string
+): Promise<{ removed: boolean; ref: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext !== '.asc') {
+    throw new Error('removeComponent currently supports .asc files');
+  }
+
+  await checkAgentApproval(resolved, `Remove component ${ref}`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  await historyMgr.recordBeforeChange(resolved, `Remove component ${ref}`);
+
+  const uri = vscode.Uri.file(resolved);
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const currentText = doc.getText();
+
+  const newContent = removeComponentFromAsc(currentText, ref);
+
+  const edit = new vscode.WorkspaceEdit();
+  const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(currentText.length));
+  edit.replace(uri, fullRange, newContent);
+  await vscode.workspace.applyEdit(edit);
+  await doc.save();
+
+  historyMgr.postAgentBanner(resolved, `Agent: removed ${ref}`);
+  return { removed: true, ref };
+}
+
+export async function addDirective(
+  filePath: string,
+  text: string
+): Promise<{ added: boolean; text: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext !== '.asc') {
+    throw new Error('addDirective currently supports .asc files');
+  }
+
+  await checkAgentApproval(resolved, `Add directive ${text}`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  await historyMgr.recordBeforeChange(resolved, `Add directive ${text}`);
+
+  const uri = vscode.Uri.file(resolved);
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const currentText = doc.getText();
+
+  const newContent = addDirectiveToAsc(currentText, text);
+
+  const edit = new vscode.WorkspaceEdit();
+  const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(currentText.length));
+  edit.replace(uri, fullRange, newContent);
+  await vscode.workspace.applyEdit(edit);
+  await doc.save();
+
+  historyMgr.postAgentBanner(resolved, `Agent: added directive '${text}'`);
+  return { added: true, text };
+}
+
+export async function createModel(filePath: string): Promise<{ created: boolean; model: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  if (!resolved.toLowerCase().endsWith('.slx')) {
+    throw new Error('createModel only supports .slx models');
+  }
+
+  await checkAgentApproval(resolved, `Create model ${path.basename(resolved)}`);
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+
+  const res = await bridge.createModel(resolved);
+  const uri = vscode.Uri.file(resolved);
+  await vscode.commands.executeCommand('vscode.openWith', uri, 'eide.simulinkModel');
+
+  AgentHistoryManager.getInstance().postAgentBanner(resolved, `Agent: created model ${path.basename(resolved)}`);
+  return { created: true, model: res.model };
+}
+
+export async function addBlock(
+  filePath: string,
+  libraryPath: string,
+  name: string,
+  params?: Record<string, string>
+): Promise<{ added: boolean; block: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  validateSimulinkLibraryPath(libraryPath);
+
+  await checkAgentApproval(resolved, `Add block ${name} (${libraryPath})`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  await historyMgr.recordBeforeChange(resolved, `Add block ${name}`);
+
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+
+  const res = await bridge.addBlock(resolved, libraryPath, name, params);
+
+  const buf = await readFileWithRetry(resolved);
+  const model = parseSlx(buf, path.basename(resolved, '.slx'));
+  postToEditorWebview(resolved, {
+    type: 'update',
+    model,
+    fileName: path.basename(resolved),
+  });
+
+  historyMgr.postAgentBanner(resolved, `Agent: added block ${name}`);
+  return res;
+}
+
+export async function removeBlock(
+  filePath: string,
+  name: string
+): Promise<{ removed: boolean; block: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  await checkAgentApproval(resolved, `Remove block ${name}`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  await historyMgr.recordBeforeChange(resolved, `Remove block ${name}`);
+
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+
+  const res = await bridge.removeBlock(resolved, name);
+
+  const buf = await readFileWithRetry(resolved);
+  const model = parseSlx(buf, path.basename(resolved, '.slx'));
+  postToEditorWebview(resolved, {
+    type: 'update',
+    model,
+    fileName: path.basename(resolved),
+  });
+
+  historyMgr.postAgentBanner(resolved, `Agent: removed block ${name}`);
+  return res;
+}
+
+export async function autoLayout(
+  filePath: string
+): Promise<{ arranged: boolean; model: string }> {
+  const resolved = assertPathInWorkspace(filePath);
+  await revealEditorForFile(resolved);
+
+  const bridge = getMatlabBridge();
+  if (bridge.getStatus() === 'off') {
+    await bridge.start();
+  }
+
+  const res = await bridge.autoLayout(resolved);
+
+  const buf = await readFileWithRetry(resolved);
+  const model = parseSlx(buf, path.basename(resolved, '.slx'));
+  postToEditorWebview(resolved, {
+    type: 'update',
+    model,
+    fileName: path.basename(resolved),
+  });
+
+  AgentHistoryManager.getInstance().postAgentBanner(resolved, 'Agent: auto-arranged layout');
+  return res;
+}
+
+export async function checkSpec(
+  filePath: string,
+  spec: DesignSpec
+): Promise<SpecCheckResult> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+
+  let summary: CompactSimulationSummary;
+  let rawWaveform: { x: number[]; y: number[] } | undefined;
+
+  if (ext === '.asc') {
+    const rawRes = await runSimulationRaw(resolved);
+    if (!rawRes.raw) {
+      throw new Error(`Simulation failed: ${rawRes.error || 'No raw output'}`);
+    }
+    const raw = rawRes.raw;
+    summary = summarizeSimulationData({
+      plotName: raw.plotName,
+      x: Array.from(raw.x),
+      series: raw.series,
+      measurements: rawRes.log.measurements,
+    });
+
+    const targetSig = spec.signal || 'V(out)';
+    const foundSeries = raw.series[targetSig];
+    if (foundSeries) {
+      rawWaveform = {
+        x: Array.from(raw.x),
+        y: foundSeries instanceof Float64Array ? Array.from(foundSeries) : Array.from(foundSeries.re),
+      };
+    }
+  } else if (ext === '.slx') {
+    const bridge = getMatlabBridge();
+    const simRes = await bridge.simulate(resolved);
+    const primary = simRes.signals.find((s) => s.name === spec.signal) || simRes.signals[0];
+    if (!primary) {
+      throw new Error('No simulation signals found in Simulink output');
+    }
+    rawWaveform = { x: primary.time, y: primary.values };
+    summary = summarizeSimulationData({
+      plotName: 'Simulink Simulation',
+      x: primary.time,
+      series: Object.fromEntries(simRes.signals.map((s) => [s.name, s.values])),
+    });
+  } else {
+    throw new Error(`Unsupported file type ${ext} for checkSpec`);
+  }
+
+  return evaluateSpec(summary, spec, rawWaveform);
+}
+
+export async function tune(
+  filePath: string,
+  params: TuneParamConfig[],
+  spec: DesignSpec,
+  maxIterations: number = 20
+): Promise<TuneResult> {
+  const resolved = assertPathInWorkspace(filePath);
+  const ext = path.extname(resolved).toLowerCase();
+
+  await checkAgentApproval(resolved, `Tune ${params.map((p) => p.name).join(', ')} to spec`);
+  await revealEditorForFile(resolved);
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  // Finalize any previous pending turn so tune is an independent single undo step
+  historyMgr.commitActiveTurn(resolved);
+  await historyMgr.recordBeforeChange(resolved, `Tune ${params.map((p) => p.name).join(', ')}`);
+
+  const res = await runTuner(
+    params,
+    async (values, iter) => {
+      // 1. Apply candidate parameter values
+      if (ext === '.asc') {
+        for (const [name, val] of Object.entries(values)) {
+          await setComponentValue(resolved, name, String(val), true);
+        }
+      } else if (ext === '.slx') {
+        const bridge = getMatlabBridge();
+        for (const [name, val] of Object.entries(values)) {
+          await bridge.setParam(resolved, name, 'Value', String(val)).catch(async () => {
+            await bridge.setParam(resolved, name, 'Gain', String(val)).catch(async () => {
+              await bridge.setParam(resolved, name, 'Denominator', String(val));
+            });
+          });
+        }
+      }
+
+      // 2. Evaluate spec
+      const checkRes = await checkSpec(resolved, spec);
+      return { pass: checkRes.pass, errorScore: checkRes.errorScore };
+    },
+    maxIterations,
+    (progress) => {
+      historyMgr.postAgentBanner(
+        resolved,
+        `Agent: tuning iteration ${progress.iteration}/${maxIterations} · error: ${progress.errorScore}%`
+      );
+    }
+  );
+
+  historyMgr.postAgentBanner(
+    resolved,
+    `Agent: ${res.success ? 'Successfully tuned' : 'Tuning finished'} in ${res.iterations} iterations · final error: ${res.finalError.toFixed(1)}%`
+  );
+
+  historyMgr.commitActiveTurn(resolved);
+  return res;
 }

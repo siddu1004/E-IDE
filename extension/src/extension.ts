@@ -184,8 +184,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('eide.copyMcpConfig', async () => {
-      if (activeMcpServer) {
-        const configJson = activeMcpServer.getMcpConfigJson();
+      const server = activeMcpServer || EidMcpServer.getActiveInstance();
+      if (server) {
+        const start = Date.now();
+        while (server.getPort() === 0 && Date.now() - start < 5000) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        const configJson = server.getMcpConfigJson();
         await vscode.env.clipboard.writeText(configJson);
         vscode.window.showInformationMessage(
           'E-IDE MCP config copied to clipboard! Paste it into Antigravity mcp_config.json.'

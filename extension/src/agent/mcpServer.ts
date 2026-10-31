@@ -7,6 +7,12 @@ import { z } from 'zod';
 import * as tools from './tools';
 
 export class EidMcpServer {
+  private static activeInstance?: EidMcpServer;
+
+  public static getActiveInstance(): EidMcpServer | undefined {
+    return EidMcpServer.activeInstance;
+  }
+
   private server?: http.Server;
   private transport?: StreamableHTTPServerTransport;
   private mcpServer?: McpServer;
@@ -17,6 +23,7 @@ export class EidMcpServer {
   private sessions = new Map<string, { transport: StreamableHTTPServerTransport; mcpServer: McpServer }>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    EidMcpServer.activeInstance = this;
     this.token = crypto.randomBytes(24).toString('hex');
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     this.statusBarItem.command = 'eide.copyMcpConfig';
@@ -331,6 +338,173 @@ export class EidMcpServer {
       async ({ filePath }) => {
         const success = await tools.undoAgentChange(filePath);
         return { content: [{ type: 'text', text: JSON.stringify({ success }) }] };
+      }
+    );
+
+    // 16. Schematic: createSchematic
+    mcp.tool(
+      'createSchematic',
+      'Create a new empty schematic file (.asc or .kicad_sch) and open it in the editor.',
+      { filePath: z.string().describe('Path to the schematic file inside workspace') },
+      async ({ filePath }) => {
+        const res = await tools.createSchematic(filePath);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 17. Schematic: addComponent
+    mcp.tool(
+      'addComponent',
+      'Add a component (R, C, L, V, I, D, NPN, PNP, NMOS, PMOS, opamp, GND) to schematic without coordinates.',
+      {
+        filePath: z.string().describe('Path to the schematic file inside workspace'),
+        type: z.string().describe('Component type (e.g. R, C, V, opamp, GND)'),
+        value: z.string().describe('Component value or model (e.g. 10k, 100n, 12, SINE(0 1 1k))'),
+        near: z.string().optional().describe('Optional reference designator to place near (e.g. R1)'),
+      },
+      async ({ filePath, type, value, near }) => {
+        const res = await tools.addComponent(filePath, type, value, near);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 18. Schematic: connect
+    mcp.tool(
+      'connect',
+      'Connect two pins orthogonally (e.g. R1.1 to C1.1, U1.out to R2.1).',
+      {
+        filePath: z.string().describe('Path to the schematic file inside workspace'),
+        pinA: z.string().describe('First pin address (e.g. R1.1, V1.+, U1.out)'),
+        pinB: z.string().describe('Second pin address (e.g. C1.1, GND1.0, U1.in-)'),
+      },
+      async ({ filePath, pinA, pinB }) => {
+        const res = await tools.connect(filePath, pinA, pinB);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 19. Schematic: removeComponent
+    mcp.tool(
+      'removeComponent',
+      'Remove a component and its associated wires from schematic.',
+      {
+        filePath: z.string().describe('Path to the schematic file inside workspace'),
+        ref: z.string().describe('Reference designator (e.g. R1, C2, U1)'),
+      },
+      async ({ filePath, ref }) => {
+        const res = await tools.removeComponent(filePath, ref);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 20. Schematic: addDirective
+    mcp.tool(
+      'addDirective',
+      'Add a SPICE simulation directive to schematic (e.g. .tran 5m, .ac dec 50 10 1meg).',
+      {
+        filePath: z.string().describe('Path to the schematic file inside workspace'),
+        text: z.string().describe('SPICE directive text (e.g. .tran 10m, .ac dec 20 1 100k)'),
+      },
+      async ({ filePath, text }) => {
+        const res = await tools.addDirective(filePath, text);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 21. Simulink: createModel
+    mcp.tool(
+      'createModel',
+      'Create a new Simulink model (.slx) in workspace and open in visual editor.',
+      { filePath: z.string().describe('Path to the .slx file inside workspace') },
+      async ({ filePath }) => {
+        const res = await tools.createModel(filePath);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 22. Simulink: addBlock
+    mcp.tool(
+      'addBlock',
+      'Add a library block to Simulink model (validated against allowed library whitelist).',
+      {
+        filePath: z.string().describe('Path to the .slx file inside workspace'),
+        libraryPath: z.string().describe('Library block path (e.g. simulink/Continuous/Integrator, simulink/Sources/Step)'),
+        name: z.string().describe('Block name in model'),
+        params: z.record(z.string(), z.string()).optional().describe('Initial block parameters'),
+      },
+      async ({ filePath, libraryPath, name, params }) => {
+        const res = await tools.addBlock(filePath, libraryPath, name, params);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 23. Simulink: removeBlock
+    mcp.tool(
+      'removeBlock',
+      'Delete a block from Simulink model.',
+      {
+        filePath: z.string().describe('Path to the .slx file inside workspace'),
+        name: z.string().describe('Block name in model'),
+      },
+      async ({ filePath, name }) => {
+        const res = await tools.removeBlock(filePath, name);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 24. Simulink: autoLayout
+    mcp.tool(
+      'autoLayout',
+      'Auto-arrange block diagram layout cleanly in Simulink model.',
+      { filePath: z.string().describe('Path to the .slx file inside workspace') },
+      async ({ filePath }) => {
+        const res = await tools.autoLayout(filePath);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 25. Spec: checkSpec
+    mcp.tool(
+      'checkSpec',
+      'Simulate design and evaluate against engineering performance specifications (cutoff, overshoot, rise time, ripple).',
+      {
+        filePath: z.string().describe('Path to schematic or model inside workspace'),
+        spec: z.object({
+          signal: z.string().optional(),
+          cutoff_hz: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+          overshoot_pct: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+          rise_time_s: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+          settling_time_s: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+          ripple_v: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+          ripple_mv: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+          final_value: z.object({ target: z.number().optional(), tol_pct: z.number().optional(), min: z.number().optional(), max: z.number().optional() }).optional(),
+        }).describe('Engineering specification JSON object'),
+      },
+      async ({ filePath, spec }) => {
+        const res = await tools.checkSpec(filePath, spec);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 26. Optimization: tune
+    mcp.tool(
+      'tune',
+      'Tune component values or model parameters to satisfy specification within iteration budget (with live updates and single undo).',
+      {
+        filePath: z.string().describe('Path to file inside workspace'),
+        params: z.array(z.object({
+          name: z.string().describe('Component or block parameter name'),
+          min: z.number().describe('Minimum allowable value'),
+          max: z.number().describe('Maximum allowable value'),
+          initial: z.number().optional(),
+          snapE24: z.boolean().optional(),
+        })).describe('List of tunable parameters with bounds'),
+        spec: z.any().describe('Target engineering specification'),
+        maxIterations: z.number().optional().default(20).describe('Maximum tuning iterations'),
+      },
+      async ({ filePath, params, spec, maxIterations }) => {
+        const res = await tools.tune(filePath, params, spec, maxIterations);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
       }
     );
 
