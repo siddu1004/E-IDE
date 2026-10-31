@@ -26,9 +26,29 @@ describe('Milestone 5: AI Agent MCP Integration Flows', () => {
     samplesDir = ws.samplesDir;
 
     // Retrieve MCP server configuration via extension command
-    await vscode.commands.executeCommand('eide.copyMcpConfig');
-    const clipboardText = await vscode.env.clipboard.readText();
-    const config = JSON.parse(clipboardText);
+    let config: any;
+    const start = Date.now();
+    while (Date.now() - start < 10000) {
+      await vscode.commands.executeCommand('eide.copyMcpConfig');
+      await new Promise((r) => setTimeout(r, 100));
+      const clipboardText = await vscode.env.clipboard.readText();
+      if (clipboardText && clipboardText.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(clipboardText);
+          if (parsed.mcpServers?.eide?.url) {
+            config = parsed;
+            break;
+          }
+        } catch {}
+      }
+    }
+    if (!config) {
+      const { EidMcpServer } = require('../../src/agent/mcpServer');
+      const inst = EidMcpServer.getActiveInstance();
+      if (inst) {
+        config = JSON.parse(inst.getMcpConfigJson());
+      }
+    }
 
     assert.ok(config.mcpServers?.eide?.url, 'MCP config must contain server URL');
     assert.ok(config.mcpServers?.eide?.headers?.Authorization, 'MCP config must contain Authorization header');

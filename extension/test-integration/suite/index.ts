@@ -8,6 +8,9 @@ export function run(): Promise<void> {
     color: true,
     timeout: 120000,
   });
+  if (process.env.MOCHA_GREP) {
+    mocha.grep(process.env.MOCHA_GREP);
+  }
 
   const testsRoot = path.resolve(__dirname);
 

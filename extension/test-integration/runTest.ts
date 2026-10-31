@@ -37,6 +37,7 @@ async function main() {
       ],
       extensionTestsEnv: {
         EIDE_TEST: '1',
+        ...(process.env.MOCHA_GREP ? { MOCHA_GREP: process.env.MOCHA_GREP } : {}),
       },
     });
     console.log('[IntegrationTest] All integration tests completed successfully.');
