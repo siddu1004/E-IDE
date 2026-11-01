@@ -50,8 +50,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 3c. EEE Apps sidebar view & status bar
   const mirrorAppsProvider = new MirrorAppsProvider();
-  vscode.window.registerTreeDataProvider('eide.appsView', mirrorAppsProvider);
-  context.subscriptions.push(mirrorAppsProvider);
+  const appsView = vscode.window.createTreeView('eide.appsView', { treeDataProvider: mirrorAppsProvider });
+  mirrorAppsProvider.setVisible(appsView.visible);
+  context.subscriptions.push(
+    mirrorAppsProvider,
+    appsView,
+    appsView.onDidChangeVisibility((e) => mirrorAppsProvider.setVisible(e.visible))
+  );
 
   const appsStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   appsStatusBar.text = '$(window) Apps';

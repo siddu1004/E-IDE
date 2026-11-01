@@ -65,11 +65,6 @@ export class MirrorAppsProvider implements vscode.TreeDataProvider<MirrorAppTree
   constructor() {
     MirrorAppsProvider.instance = this;
 
-    // Refresh every 5 seconds as requested
-    this.pollTimer = setInterval(() => {
-      this.refresh();
-    }, 5000);
-
     if (!MirrorAppsProvider.commandsRegistered) {
       MirrorAppsProvider.commandsRegistered = true;
       this.disposables.push(
@@ -94,6 +89,17 @@ export class MirrorAppsProvider implements vscode.TreeDataProvider<MirrorAppTree
 
   public static getInstance(): MirrorAppsProvider | undefined {
     return MirrorAppsProvider.instance;
+  }
+
+  /** Polls only while the sidebar is showing: with no app tab open, each probe starts a PowerShell helper. */
+  public setVisible(visible: boolean): void {
+    if (visible && !this.pollTimer) {
+      this.refresh();
+      this.pollTimer = setInterval(() => this.refresh(), 5000);
+    } else if (!visible && this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
   }
 
   public refresh(): void {
