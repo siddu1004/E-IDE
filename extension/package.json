@@ -51,6 +51,23 @@
         "priority": "default"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "eide-apps-container",
+          "title": "EEE Apps",
+          "icon": "media/apps.svg"
+        }
+      ]
+    },
+    "views": {
+      "eide-apps-container": [
+        {
+          "id": "eide.appsView",
+          "name": "EEE Apps"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "eide.openAsText",
@@ -130,6 +147,16 @@
         "command": "eide.apps.openFile",
         "title": "E-IDE: Open in Desktop App Inside IDE",
         "icon": "$(window)"
+      },
+      {
+        "command": "eide.apps.refresh",
+        "title": "E-IDE: Refresh EEE Apps",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "eide.apps.installApp",
+        "title": "E-IDE: Install Desktop App",
+        "icon": "$(cloud-download)"
       }
     ],
     "menus": {
@@ -170,6 +197,25 @@
           "command": "eide.apps.openFile",
           "when": "resourceExtname =~ /^\\.(slx|mdl|m|mlx|kicad_pro|kicad_sch|kicad_pcb|asc|ino)$/",
           "group": "navigation@9"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "eide.apps.refresh",
+          "when": "view == eide.appsView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "eide.apps.open",
+          "when": "view == eide.appsView && (viewItem == installedApp || viewItem == runningApp)",
+          "group": "inline"
+        },
+        {
+          "command": "eide.apps.installApp",
+          "when": "view == eide.appsView && viewItem == uninstalledApp",
+          "group": "inline"
         }
       ]
     },

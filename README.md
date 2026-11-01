@@ -8,7 +8,32 @@ Visual editors for electrical engineering files inside Antigravity and VS Code-c
 - **KiCad (`.kicad_sch`)**: schematic view drawn from KiCad's own symbols, net highlighting, editable values and footprints, ERC results in the Problems panel, and simulation through LTspice.
 - **MATLAB Scripts (`.m`)**: CodeLens "Run in MATLAB" action, persistent TCP bridge, output logging, side panel figure viewer with previous run comparison, and Problems panel error diagnostics.
 - **Simulink Models (`.slx`)**: fast offline block diagram rendering, interactive pan/zoom, subsystem drill-down, live disk change watcher with diff pulse highlights, aside parameter editor, simulation runner with logsout/simlog waveform plotting, and click-to-log line toggles.
+- **Arduino (`.ino`)**: sketch verification and uploading via `arduino-cli`, compiler diagnostics in Problems panel, serial monitor & live numeric waveform plotter, and automatic serial port release/reconnect around firmware flashes.
+- **Desktop Apps inside E-IDE**: run full desktop engineering tools (MATLAB/Simulink, KiCad, LTspice, Arduino IDE) inside IDE tabs via WinMirror window capture.
 - **Agent Tools (`tools.ts`)**: programmatic API for AI agents to inspect schematics, mutate block parameters, connect blocks, and run simulations live in open editors.
+
+## Apps inside E-IDE
+
+Run and interact with full-featured desktop EEE engineering applications directly within editor tabs. Supported applications include **MATLAB / Simulink**, **KiCad**, **LTspice**, and **Arduino IDE**.
+
+### Features
+
+- **EEE Apps View**: Accessible via the Activity Bar icon. Displays the status of each supported application (`Installed`, `Running`, or `Not installed`) with an automatic 5-second refresh interval. Click to open installed or running applications inside an IDE tab, or trigger installation downloads for missing ones.
+- **Status Bar Integration**: A `$(window) Apps` item in the status bar provides quick access to launch applications (`eide.apps.open`).
+- **Disk Change Watcher**: When a file is open in a mirrored desktop app and modified externally (e.g. by an AI agent), E-IDE detects the change via FileSystemWatcher and prompts: *"Changed on disk, reload in <app>?"* to ensure synchronization.
+
+### Usage
+
+You can open a desktop app inside E-IDE using any of the following methods:
+
+1. **Sidebar**: Click an application in the **EEE Apps** activity bar view.
+2. **Status Bar**: Click the `$(window) Apps` button.
+3. **Context Menu**: Right-click a supported file (`.asc`, `.kicad_sch`, `.slx`, `.ino`, etc.) in the file explorer or editor title bar and select **Open in Desktop App Inside IDE**.
+
+### Limitations
+
+- **Platform**: Windows only (powered by Windows desktop window capture).
+- **Keyboard Input**: `Ctrl` keyboard shortcuts are not currently forwarded to mirrored windows.
 
 ## Requirements
 

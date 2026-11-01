@@ -12,6 +12,8 @@ import { MatlabScriptRunner } from './matlab/matlabScriptRunner';
 import { SlxEditorProvider } from './simulink/slxEditorProvider';
 import { ArduinoController } from './arduino/arduinoController';
 import { AppMirrorController, setAppMirror } from './mirror/appMirror';
+import { MirrorAppsProvider } from './mirror/mirrorView';
+import { AppFileWatcher } from './mirror/appWatcher';
 
 let activeMatlabBridge: MatlabBridge | undefined;
 let activeMcpServer: EidMcpServer | undefined;
@@ -45,6 +47,22 @@ export function activate(context: vscode.ExtensionContext) {
   const appMirror = new AppMirrorController(context);
   setAppMirror(appMirror);
   context.subscriptions.push(appMirror, { dispose: () => setAppMirror(undefined) });
+
+  // 3c. EEE Apps sidebar view & status bar
+  const mirrorAppsProvider = new MirrorAppsProvider();
+  vscode.window.registerTreeDataProvider('eide.appsView', mirrorAppsProvider);
+  context.subscriptions.push(mirrorAppsProvider);
+
+  const appsStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  appsStatusBar.text = '$(window) Apps';
+  appsStatusBar.tooltip = 'Open desktop EEE app inside E-IDE (MATLAB, KiCad, LTspice, Arduino IDE)';
+  appsStatusBar.command = 'eide.apps.open';
+  appsStatusBar.show();
+  context.subscriptions.push(appsStatusBar);
+
+  // 3d. Watch files opened in mirrored apps for agent changes
+  const appWatcher = new AppFileWatcher(context, appMirror);
+  context.subscriptions.push(appWatcher);
 
   // 4. MCP Server inside extension
   const mcpServer = new EidMcpServer(context);

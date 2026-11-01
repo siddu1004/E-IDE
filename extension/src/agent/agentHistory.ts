@@ -66,11 +66,23 @@ export class AgentHistoryManager {
   // Map of registered webviews (imported from tools or injected)
   private webviews = new Map<string, vscode.Webview>();
 
+  // Last agent edit timestamp per lowercase fsPath
+  private lastAgentEditTimes = new Map<string, number>();
+
   public static getInstance(): AgentHistoryManager {
     if (!AgentHistoryManager.instance) {
       AgentHistoryManager.instance = new AgentHistoryManager();
     }
     return AgentHistoryManager.instance;
+  }
+
+  public markAgentEditing(filePath: string): void {
+    this.lastAgentEditTimes.set(path.resolve(filePath).toLowerCase(), Date.now());
+  }
+
+  public isAgentEditing(filePath: string, windowMs = 15000): boolean {
+    const t = this.lastAgentEditTimes.get(path.resolve(filePath).toLowerCase());
+    return t !== undefined && Date.now() - t < windowMs;
   }
 
   public registerWebview(filePath: string, webview: vscode.Webview): vscode.Disposable {
@@ -97,6 +109,7 @@ export class AgentHistoryManager {
    * Called before modifying a file. Captures the state before this turn started.
    */
   public async recordBeforeChange(filePath: string, changeDesc: string): Promise<void> {
+    this.markAgentEditing(filePath);
     const key = path.resolve(filePath).toLowerCase();
     const ext = path.extname(filePath).toLowerCase();
     const fileType: 'asc' | 'kicad_sch' | 'slx' =
@@ -179,6 +192,7 @@ export class AgentHistoryManager {
    * Finalizes an agent turn into history.
    */
   private commitTurn(filePath: string, turn: ActiveTurn) {
+    this.markAgentEditing(filePath);
     const key = path.resolve(filePath).toLowerCase();
     this.activeTurns.delete(key);
 
