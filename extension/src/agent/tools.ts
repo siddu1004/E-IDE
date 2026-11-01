@@ -1179,7 +1179,22 @@ export async function listBoards(): Promise<AgentListBoardsResult> {
 /**
  * Compiles an Arduino sketch for a specific FQBN (e.g. "arduino:avr:uno").
  */
+// Agent-supplied values become arduino-cli arguments; a leading '-' would be read as a flag
+// (e.g. --build-property can run commands at compile time), so only accept real-looking values.
+function assertFqbn(fqbn: string): void {
+  if (!/^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+(:[A-Za-z0-9_.,=-]+)?$/.test(fqbn) || fqbn.startsWith('-')) {
+    throw new Error(`Invalid board FQBN: ${fqbn}`);
+  }
+}
+
+function assertPort(port: string): void {
+  if (!/^[A-Za-z0-9_./:\-]+$/.test(port) || port.startsWith('-')) {
+    throw new Error(`Invalid serial port: ${port}`);
+  }
+}
+
 export async function compileSketch(sketchPath: string, fqbn: string): Promise<CompileResult> {
+  assertFqbn(fqbn);
   const resolved = assertPathInWorkspace(sketchPath);
   const config = vscode.workspace.getConfiguration('eide.arduino');
   const customPath = config.get<string>('cliPath');
@@ -1210,6 +1225,8 @@ export async function compileSketch(sketchPath: string, fqbn: string): Promise<C
  * Always prompts user confirmation before flashing real hardware, regardless of requireApproval.
  */
 export async function uploadSketch(sketchPath: string, fqbn: string, port: string): Promise<UploadResult> {
+  assertFqbn(fqbn);
+  assertPort(port);
   const resolved = assertPathInWorkspace(sketchPath);
   const config = vscode.workspace.getConfiguration('eide.arduino');
   const customPath = config.get<string>('cliPath');
@@ -1264,6 +1281,9 @@ export async function readSerial(
   baud: number = 115200,
   seconds: number = 2
 ): Promise<CompactSerialSummary> {
+  assertPort(port);
+  if (!Number.isInteger(baud) || baud < 300 || baud > 4000000) throw new Error(`Invalid baud rate: ${baud}`);
+  seconds = Math.min(Math.max(Number(seconds) || 2, 0.5), 30);
   const config = vscode.workspace.getConfiguration('eide.arduino');
   const customPath = config.get<string>('cliPath');
   const cliPath = findArduinoCli(customPath);
