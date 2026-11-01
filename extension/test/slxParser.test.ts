@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseSlx, diffSlxModels, readZipEntries } from '../src/simulink/slxParser';
+import { parseSlx, diffSlxModels, readZipEntries, parseSystemXml, portPosition } from '../src/simulink/slxParser';
 
 describe('slxParser with real R2026a Simulink fixture', () => {
   const fixturePath = path.resolve(__dirname, '..', '..', 'test', 'fixtures', 'simulink', 'rc_circuit.slx');
@@ -69,5 +69,72 @@ describe('slxParser with real R2026a Simulink fixture', () => {
     assert.deepEqual(diff.changedBlockSids, ['2']);
     assert.equal(diff.addedBlockSids.length, 0);
     assert.equal(diff.removedBlockSids.length, 0);
+  });
+});
+
+describe('slxParser line routing, annotations, and ports', () => {
+  // Shape taken from a real R2025 model: a branch that itself branches, Points as relative offsets.
+  const xml = `
+  <Block BlockType="Constant" Name="Src" SID="1"><P Name="Position">[0, 40, 20, 60]</P></Block>
+  <Block BlockType="Gain" Name="A" SID="2"><P Name="Position">[100, 0, 120, 20]</P></Block>
+  <Block BlockType="SubSystem" Name="B" SID="3"><PortCounts in="2" out="1"/><P Name="Position">[100, 80, 140, 120]</P></Block>
+  <Block BlockType="Gain" Name="C" SID="4"><P Name="Position">[100, 140, 120, 160]</P><P Name="BlockRotation">90</P></Block>
+  <Line>
+    <P Name="Src">1#out:1</P>
+    <P Name="Points">[40, 0]</P>
+    <Branch>
+      <P Name="Points">[0, -40]</P>
+      <Branch>
+        <P Name="Points">[20, 0]</P>
+        <P Name="Dst">2#in:1</P>
+      </Branch>
+      <Branch>
+        <P Name="Points">[0, -5]</P>
+        <P Name="Dst">3#in:1</P>
+      </Branch>
+    </Branch>
+    <Branch>
+      <P Name="Points">[0, 40]</P>
+      <P Name="Dst">3#in:2</P>
+    </Branch>
+  </Line>
+  <Annotation SID="9">
+    <P Name="Name">LIVE PV DASHBOARD &amp; notes</P>
+    <P Name="Position">[-290, -150, 185, -130]</P>
+    <P Name="FontSize">16</P>
+    <P Name="FontWeight">bold</P>
+  </Annotation>`;
+  const sys = parseSystemXml(xml);
+
+  it('keeps every destination of nested branches', () => {
+    assert.deepEqual(sys.lines.map((l) => `${l.dst!.sid}:${l.dst!.portNumber}`).sort(), ['2:1', '3:1', '3:2']);
+  });
+
+  it('routes along the saved points from the source port to the destination port', () => {
+    const toA = sys.lines.find((l) => l.dst!.sid === '2')!;
+    assert.deepEqual(toA.points, [
+      { x: 20, y: 50 },
+      { x: 60, y: 50 },
+      { x: 60, y: 10 },
+      { x: 80, y: 10 },
+      { x: 100, y: 10 },
+    ]);
+    const toB2 = sys.lines.find((l) => l.dst!.sid === '3' && l.dst!.portNumber === 2)!;
+    assert.deepEqual(toB2.points!.slice(-1)[0], { x: 100, y: 110 });
+  });
+
+  it('reads PortCounts and annotations', () => {
+    assert.deepEqual(sys.blocks.find((b) => b.sid === '3')!.ports, { in: 2, out: 1, lconn: 0, rconn: 0 });
+    assert.equal(sys.annotations!.length, 1);
+    assert.equal(sys.annotations![0].text, 'LIVE PV DASHBOARD & notes');
+    assert.equal(sys.annotations![0].bold, true);
+    assert.equal(sys.annotations![0].fontSize, 16);
+  });
+
+  it('moves ports with block rotation', () => {
+    const c = sys.blocks.find((b) => b.sid === '4')!;
+    assert.equal(c.rotation, 90);
+    assert.deepEqual(portPosition(c, 'in', 1), { x: 110, y: 140 });
+    assert.deepEqual(portPosition(c, 'out', 1), { x: 110, y: 160 });
   });
 });

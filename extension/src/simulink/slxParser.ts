@@ -10,6 +10,25 @@ export interface SlxBlock {
   position: { left: number; top: number; right: number; bottom: number };
   parameters: Record<string, string>;
   subsystemFile?: string;
+  rotation?: number;
+  mirror?: boolean;
+  ports?: SlxPortCounts;
+  sourceBlock?: string;
+}
+
+export interface SlxPortCounts {
+  in: number;
+  out: number;
+  lconn: number;
+  rconn: number;
+}
+
+export interface SlxAnnotation {
+  sid: string;
+  text: string;
+  position: { left: number; top: number; right: number; bottom: number };
+  fontSize?: number;
+  bold?: boolean;
 }
 
 export interface SlxLineEndpoint {
@@ -30,6 +49,7 @@ export interface SlxSystem {
   name: string;
   blocks: SlxBlock[];
   lines: SlxLine[];
+  annotations?: SlxAnnotation[];
 }
 
 export interface SlxModel {
@@ -112,7 +132,11 @@ export function readZipEntries(buf: Buffer): Record<string, Buffer> {
 /**
  * Parses XML string into System (blocks, lines, parameters).
  */
-export function parseSystemXml(xmlText: string, systemName = 'root'): SlxSystem {
+export function parseSystemXml(
+  xmlText: string,
+  systemName = 'root',
+  portHints: Record<string, SlxPortCounts> = {},
+): SlxSystem {
   const blocks: SlxBlock[] = [];
   const lines: SlxLine[] = [];
 
@@ -163,71 +187,174 @@ export function parseSystemXml(xmlText: string, systemName = 'root'): SlxSystem 
       type,
       position,
       parameters,
+      rotation: parseInt(parameters.BlockRotation ?? '0', 10) || 0,
+      mirror: parameters.BlockMirror === 'on',
+      ports: parsePortCountsTag(bodyStr) ?? parsePortCounts(parameters.Ports) ?? (portHints[sid] ? { ...portHints[sid] } : undefined),
+      sourceBlock: parameters.SourceBlock,
     });
   }
 
-  // Match Line elements: <Line> ... </Line>
+  // Lines are trees: a <Branch> can hold further <Branch>es, so walk the tags with a stack
+  // instead of regex-matching branch bodies (a lazy match stops at the first inner </Branch>).
+  const rawLines: RawLine[] = [];
   const lineRegex = /<Line>([\s\S]*?)<\/Line>/gi;
   let lineMatch: RegExpExecArray | null;
-
   while ((lineMatch = lineRegex.exec(xmlText)) !== null) {
-    const lineBody = lineMatch[1];
-    const srcEndpoint = parseEndpoint(lineBody, 'Src');
+    rawLines.push(parseLineTree(lineMatch[1]));
+  }
 
-    // Extract direct Dst outside of any <Branch> tags
-    const directBody = lineBody.replace(/<Branch>[\s\S]*?<\/Branch>/gi, '');
-    const directDst = parseEndpoint(directBody, 'Dst');
+  // Blocks often omit Ports; take the highest port number any line uses instead.
+  const blockBySid = new Map(blocks.map((b) => [b.sid, b]));
+  const seen = (ep?: SlxLineEndpoint) => {
+    const b = ep && blockBySid.get(ep.sid);
+    if (!b || !ep) return;
+    const counts = (b.ports ??= { in: 0, out: 0, lconn: 0, rconn: 0 });
+    const kind = ep.portType.toLowerCase() as keyof SlxPortCounts;
+    if (kind in counts) counts[kind] = Math.max(counts[kind], ep.portNumber);
+  };
+  for (const raw of rawLines) {
+    seen(raw.src);
+    for (const leaf of raw.leaves) seen(leaf.dst);
+  }
 
-    if (srcEndpoint && directDst) {
-      lines.push({
-        src: srcEndpoint,
-        dst: directDst,
-        name: parseLineName(directBody),
-        logged: /<P\s+Name="DataLogging">on<\/P>/i.test(directBody),
-      });
-    }
-
-    // Check for branches: <Branch> ... </Branch>
-    const branchRegex = /<Branch>([\s\S]*?)<\/Branch>/gi;
-    let branchMatch: RegExpExecArray | null;
-    while ((branchMatch = branchRegex.exec(lineBody)) !== null) {
-      const branchBody = branchMatch[1];
-      const branchDst = parseEndpoint(branchBody, 'Dst');
-      if (srcEndpoint && branchDst) {
-        lines.push({
-          src: srcEndpoint,
-          dst: branchDst,
-          name: parseLineName(branchBody) || parseLineName(lineBody),
-          logged: /<P\s+Name="DataLogging">on<\/P>/i.test(branchBody) || /<P\s+Name="DataLogging">on<\/P>/i.test(lineBody),
-        });
+  for (const raw of rawLines) {
+    const srcBlock = raw.src && blockBySid.get(raw.src.sid);
+    const start = srcBlock && raw.src ? portPosition(srcBlock, raw.src.portType, raw.src.portNumber) : undefined;
+    for (const leaf of raw.leaves) {
+      const line: SlxLine = { src: raw.src, dst: leaf.dst, name: leaf.name ?? raw.name, logged: raw.logged || leaf.logged };
+      if (start) {
+        const pts = [start];
+        let { x, y } = start;
+        for (const [dx, dy] of leaf.offsets) {
+          x += dx;
+          y += dy;
+          pts.push({ x, y });
+        }
+        const dstBlock = leaf.dst && blockBySid.get(leaf.dst.sid);
+        if (dstBlock && leaf.dst) pts.push(portPosition(dstBlock, leaf.dst.portType, leaf.dst.portNumber));
+        line.points = pts;
       }
+      if (line.src || line.dst) lines.push(line);
     }
+  }
+
+  const annotations: SlxAnnotation[] = [];
+  const annRegex = /<Annotation\s+([^>]*?)>([\s\S]*?)<\/Annotation>/gi;
+  let annMatch: RegExpExecArray | null;
+  while ((annMatch = annRegex.exec(xmlText)) !== null) {
+    const body = annMatch[2];
+    const text = body.match(/<P\s+Name="Name">([\s\S]*?)<\/P>/i)?.[1];
+    const pos = body.match(/<P\s+Name="Position">\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]<\/P>/i);
+    if (!text || !pos) continue;
+    annotations.push({
+      sid: annMatch[1].match(/SID="([^"]+)"/i)?.[1] ?? '',
+      text: decodeXml(text.trim()),
+      position: { left: +pos[1], top: +pos[2], right: +pos[3], bottom: +pos[4] },
+      fontSize: parseFloat(body.match(/<P\s+Name="FontSize">([\d.]+)<\/P>/i)?.[1] ?? '') || undefined,
+      bold: /<P\s+Name="FontWeight">bold<\/P>/i.test(body),
+    });
   }
 
   return {
     name: systemName,
     blocks,
     lines,
+    annotations,
   };
 }
 
-function parseEndpoint(xmlPart: string, tag: 'Src' | 'Dst'): SlxLineEndpoint | undefined {
-  // Matches: <P Name="Src">1#out:1</P> or <P Name="Dst">2#in:1</P> or <P Name="Src">1#rconn:1</P>
-  const regex = new RegExp(`<P\\s+Name="${tag}">([0-9a-zA-Z_-]+)#([a-zA-Z]+):(\\d+)<\\/P>`, 'i');
-  const match = xmlPart.match(regex);
-  if (match) {
-    return {
-      sid: match[1],
-      portType: match[2],
-      portNumber: parseInt(match[3], 10),
-    };
-  }
-  return undefined;
+interface RawLine {
+  src?: SlxLineEndpoint;
+  name?: string;
+  logged: boolean;
+  leaves: Array<{ dst?: SlxLineEndpoint; offsets: Array<[number, number]>; name?: string; logged: boolean }>;
 }
 
-function parseLineName(xmlPart: string): string | undefined {
-  const match = xmlPart.match(/<P\s+Name="Name">([^<]+)<\/P>/i);
-  return match ? decodeXml(match[1]) : undefined;
+// Simulink stores each segment's Points as offsets from the previous point, starting at the
+// source port; a branch starts where its parent's points end.
+function parseLineTree(body: string): RawLine {
+  const raw: RawLine = { logged: false, leaves: [] };
+  type Frame = { offsets: Array<[number, number]>; dst?: SlxLineEndpoint; name?: string; logged: boolean; hasChild: boolean };
+  const stack: Frame[] = [{ offsets: [], logged: false, hasChild: false }];
+  const tokenRegex = /<Branch>|<\/Branch>|<P\s+Name="([^"]+)">([\s\S]*?)<\/P>/gi;
+  const finish = (f: Frame) => {
+    if (f.dst || !f.hasChild) raw.leaves.push({ dst: f.dst, offsets: f.offsets, name: f.name, logged: f.logged });
+  };
+  let m: RegExpExecArray | null;
+  while ((m = tokenRegex.exec(body)) !== null) {
+    const top = stack[stack.length - 1];
+    if (m[0] === '<Branch>') {
+      top.hasChild = true;
+      stack.push({ offsets: [...top.offsets], logged: false, hasChild: false });
+    } else if (m[0] === '</Branch>') {
+      if (stack.length > 1) finish(stack.pop()!);
+    } else {
+      const key = m[1];
+      const value = m[2].trim();
+      if (key === 'Points') top.offsets.push(...parsePoints(value));
+      else if (key === 'Src' && stack.length === 1) raw.src = parseEndpointValue(value);
+      else if (key === 'Dst') top.dst = parseEndpointValue(value);
+      else if (key === 'Name') top.name = decodeXml(value);
+      else if (key === 'DataLogging' && value === 'on') top.logged = true;
+    }
+  }
+  const root = stack[0];
+  raw.name = root.name;
+  raw.logged = root.logged;
+  if (root.dst) raw.leaves.push({ dst: root.dst, offsets: root.offsets, name: root.name, logged: root.logged });
+  return raw;
+}
+
+function parsePoints(value: string): Array<[number, number]> {
+  return value
+    .replace(/[[\]]/g, '')
+    .split(';')
+    .map((pair) => pair.split(',').map((n) => parseFloat(n)))
+    .filter((p): p is [number, number] => p.length === 2 && p.every((n) => Number.isFinite(n)));
+}
+
+function parseEndpointValue(value: string): SlxLineEndpoint | undefined {
+  const match = value.match(/^([0-9a-zA-Z_-]+)#([a-zA-Z]+):(\d+)$/);
+  return match ? { sid: match[1], portType: match[2], portNumber: parseInt(match[3], 10) } : undefined;
+}
+
+// Newer releases write <PortCounts in="2" out="3" lconn="1"/> on the block.
+function parsePortCountsTag(body: string): SlxPortCounts | undefined {
+  const tag = body.match(/<PortCounts\s+([^>]*?)\/?>/i)?.[1];
+  if (!tag) return undefined;
+  const get = (k: string) => parseInt(tag.match(new RegExp(`\\b${k}="(\\d+)"`, 'i'))?.[1] ?? '0', 10);
+  return { in: get('in'), out: get('out'), lconn: get('lconn'), rconn: get('rconn') };
+}
+
+// Ports is "[in, out, enable, trigger, state, lconn, rconn, ...]"; missing entries are 0.
+function parsePortCounts(value?: string): SlxPortCounts | undefined {
+  if (!value) return undefined;
+  const n = value.replace(/[[\]]/g, '').split(',').map((s) => parseInt(s, 10) || 0);
+  return { in: n[0] ?? 0, out: n[1] ?? 0, lconn: n[5] ?? 0, rconn: n[6] ?? 0 };
+}
+
+/**
+ * Where a port sits on the canvas. Ports are spaced evenly along their side, as Simulink draws them.
+ * Inputs and left connections sit on the left before rotation; rotation is clockwise in degrees.
+ */
+export function portPosition(block: SlxBlock, portType: string, portNumber: number): { x: number; y: number } {
+  const { left, top, right, bottom } = block.position;
+  const kind = portType.toLowerCase();
+  const counts = block.ports ?? { in: 1, out: 1, lconn: 1, rconn: 1 };
+  const total = Math.max(portNumber, (counts as any)[kind] ?? 1, 1);
+  const frac = (2 * portNumber - 1) / (2 * total);
+  let onStart = kind === 'in' || kind === 'lconn';
+  if (block.mirror) onStart = !onStart;
+  switch (((block.rotation ?? 0) % 360 + 360) % 360) {
+    case 90:
+      return { x: right - frac * (right - left), y: onStart ? top : bottom };
+    case 180:
+      return { x: onStart ? right : left, y: bottom - frac * (bottom - top) };
+    case 270:
+      return { x: left + frac * (right - left), y: onStart ? bottom : top };
+    default:
+      return { x: onStart ? left : right, y: top + frac * (bottom - top) };
+  }
 }
 
 function decodeXml(s: string): string {
@@ -255,22 +382,35 @@ export function parseSlx(buf: Buffer, modelName = 'model'): SlxModel {
     }
   }
 
+  const subXml: Record<string, string> = {};
+  for (const [key, val] of Object.entries(entries)) {
+    if (key.startsWith('simulink/systems/system_') && key !== 'simulink/systems/system_root.xml') {
+      subXml[key.replace(/^simulink\/systems\/system_|\.xml$/gi, '')] = val.toString('utf8');
+    }
+  }
+
+  // A SubSystem block rarely stores Ports, so count the Inport/Outport (and Simscape
+  // connection port) blocks inside its system file, which is named after the block's SID.
+  const portHints: Record<string, SlxPortCounts> = {};
+  for (const [sid, xml] of Object.entries(subXml)) {
+    const count = (type: string) => (xml.match(new RegExp(`<Block\\s+[^>]*BlockType="${type}"`, 'gi')) ?? []).length;
+    const pmc = xml.match(/<Block\s+[^>]*BlockType="PMIOPort"[\s\S]*?<\/Block>/gi) ?? [];
+    const rconn = pmc.filter((b) => /<P\s+Name="Side">Right<\/P>/i.test(b)).length;
+    portHints[sid] = { in: count('Inport'), out: count('Outport'), lconn: pmc.length - rconn, rconn };
+  }
+
   // Root system is in simulink/systems/system_root.xml or simulink/blockdiagram.xml
   let rootSystem: SlxSystem = { name: 'root', blocks: [], lines: [] };
   const rootXml = entries['simulink/systems/system_root.xml']?.toString('utf8');
   if (rootXml) {
-    rootSystem = parseSystemXml(rootXml, 'root');
+    rootSystem = parseSystemXml(rootXml, 'root', portHints);
   } else if (bdXml) {
-    rootSystem = parseSystemXml(bdXml, 'root');
+    rootSystem = parseSystemXml(bdXml, 'root', portHints);
   }
 
-  // Subsystems in simulink/systems/system_*.xml
   const subsystems: Record<string, SlxSystem> = {};
-  for (const [key, val] of Object.entries(entries)) {
-    if (key.startsWith('simulink/systems/system_') && key !== 'simulink/systems/system_root.xml') {
-      const subName = key.replace(/^simulink\/systems\/system_|\.xml$/gi, '');
-      subsystems[subName] = parseSystemXml(val.toString('utf8'), subName);
-    }
+  for (const [subName, xml] of Object.entries(subXml)) {
+    subsystems[subName] = parseSystemXml(xml, subName, portHints);
   }
 
   return {

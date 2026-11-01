@@ -75,6 +75,7 @@
   let currentDiff = null;
   let selectedBlock = null;
   let currentSystemName = 'root';
+  const systemStack = [];
   let bridgeStatus = 'off';
 
   // Waveform Viewer instance
@@ -95,6 +96,8 @@
 
   // Viewport setup
   const viewportGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  svg.insertAdjacentHTML('afterbegin',
+    '<defs><marker id="slx-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" class="slx-arrowhead"/></marker></defs>');
   svg.appendChild(viewportGroup);
 
   function updateTransform() {
@@ -366,120 +369,227 @@
     return currentModel.subsystems[currentSystemName];
   }
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs, text) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  // Mirrors portPosition() in slxParser.ts: ports spaced evenly along their side, rotation clockwise.
+  function portPosition(block, portType, portNumber) {
+    const { left, top, right, bottom } = block.position;
+    const kind = portType.toLowerCase();
+    const counts = block.ports || { in: 1, out: 1, lconn: 1, rconn: 1 };
+    const total = Math.max(portNumber, counts[kind] || 1, 1);
+    const frac = (2 * portNumber - 1) / (2 * total);
+    let onStart = kind === 'in' || kind === 'lconn';
+    if (block.mirror) onStart = !onStart;
+    switch ((((block.rotation || 0) % 360) + 360) % 360) {
+      case 90: return { x: right - frac * (right - left), y: onStart ? top : bottom };
+      case 180: return { x: onStart ? right : left, y: bottom - frac * (bottom - top) };
+      case 270: return { x: left + frac * (right - left), y: onStart ? bottom : top };
+      default: return { x: onStart ? left : right, y: top + frac * (bottom - top) };
+    }
+  }
+
+  function linePath(line, srcBlock, dstBlock) {
+    let pts = line.points && line.points.length >= 2 ? line.points.slice() : null;
+    if (!pts) {
+      const a = portPosition(srcBlock, line.src.portType, line.src.portNumber);
+      const b = portPosition(dstBlock, line.dst.portType, line.dst.portNumber);
+      const midX = (a.x + b.x) / 2;
+      pts = [a, { x: midX, y: a.y }, { x: midX, y: b.y }, b];
+    } else {
+      // A model edited without re-routing can leave the last leg diagonal; draw it as an elbow.
+      const a = pts[pts.length - 2];
+      const b = pts[pts.length - 1];
+      if (Math.abs(a.x - b.x) > 1 && Math.abs(a.y - b.y) > 1) pts.splice(pts.length - 1, 0, { x: a.x, y: b.y });
+    }
+    return 'M ' + pts.map((p) => `${p.x} ${p.y}`).join(' L ');
+  }
+
+  function shortValue(text, max) {
+    if (!text) return '';
+    const t = String(text).replace(/\s+/g, ' ');
+    return t.length > max ? t.slice(0, max - 1) + '…' : t;
+  }
+
+  const GLYPHS = {
+    UnitDelay: '1/z', Integrator: '1/s', Derivative: 'du/dt', Product: '×', TransferFcn: 'H(s)',
+    StateSpace: 'ẋ=Ax+Bu', Saturate: '⟋', Scope: '▭', Step: '⎍', Clock: '⏱', Mux: '⫴', Demux: '⫴',
+    PMIOPort: '◇', Memory: 'M', Switch: '⇄', Abs: '|u|', Sqrt: '√',
+  };
+
+  // A recognisable glyph per block type, close to what Simulink draws, without library assets.
+  function drawGlyph(g, block) {
+    const { left, top, right, bottom } = block.position;
+    const w = right - left;
+    const h = bottom - top;
+    const cx = left + w / 2;
+    const cy = top + h / 2;
+    const p = block.parameters || {};
+    const fs = Math.max(7, Math.min(12, h * 0.4));
+    const text = (t, size) => g.appendChild(el('text', { x: cx, y: cy, class: 'block-glyph', 'font-size': size || fs }, t));
+    switch (block.type) {
+      case 'Gain':
+        g.appendChild(el('polygon', { points: `${left},${top} ${right},${cy} ${left},${bottom}`, class: 'block-shape' }));
+        text(shortValue(p.Gain || '1', 6));
+        return;
+      case 'Sum':
+        if (p.IconShape !== 'rectangular') {
+          g.appendChild(el('ellipse', { cx, cy, rx: w / 2, ry: h / 2, class: 'block-shape' }));
+          text(shortValue((p.Inputs || '++').replace(/\|/g, ''), 4));
+          return;
+        }
+        break;
+      case 'Inport':
+      case 'Outport':
+        g.appendChild(el('rect', { x: left, y: top, width: w, height: h, rx: h / 2, ry: h / 2, class: 'block-shape' }));
+        text(p.Port || '1');
+        return;
+      case 'Goto':
+      case 'From':
+        g.appendChild(el('rect', { x: left, y: top, width: w, height: h, class: 'block-shape' }));
+        text(`[${shortValue(p.GotoTag || 'A', 10)}]`);
+        return;
+      case 'CustomWebBlock':
+      case 'CircularGaugeBlock':
+      case 'DashboardScope': {
+        const r = Math.min(w, h) / 2;
+        g.appendChild(el('circle', { cx, cy, r, class: 'block-shape dashboard' }));
+        g.appendChild(el('path', { d: `M ${cx - r * 0.7} ${cy + r * 0.3} A ${r * 0.75} ${r * 0.75} 0 1 1 ${cx + r * 0.7} ${cy + r * 0.3}`, class: 'gauge-arc' }));
+        g.appendChild(el('line', { x1: cx, y1: cy, x2: cx + r * 0.45, y2: cy - r * 0.45, class: 'gauge-needle' }));
+        return;
+      }
+      case 'SliderBlock':
+      case 'KnobBlock':
+        g.appendChild(el('rect', { x: left, y: top, width: w, height: h, class: 'block-shape dashboard' }));
+        g.appendChild(el('line', { x1: left + 4, y1: cy, x2: right - 4, y2: cy, class: 'gauge-arc' }));
+        g.appendChild(el('circle', { cx: left + w * 0.4, cy, r: Math.min(5, h / 3), class: 'gauge-needle' }));
+        return;
+      default:
+        break;
+    }
+    g.appendChild(el('rect', { x: left, y: top, width: w, height: h, class: 'block-shape' }));
+    if (block.type === 'SubSystem') {
+      text(shortValue(block.name, Math.max(6, Math.floor(w / 6))), Math.max(7, Math.min(11, fs)));
+    } else if (block.type === 'Reference' || block.type === 'S-Function') {
+      const src = (block.sourceBlock || p.SourceBlock || block.type).split('/').pop();
+      text(shortValue(src, Math.max(5, Math.floor(w / 5))), Math.max(6, Math.min(10, fs)));
+    } else if (block.type === 'Constant') {
+      text(shortValue(p.Value || '1', 8));
+    } else {
+      text(GLYPHS[block.type] || shortValue(block.type, Math.max(4, Math.floor(w / 6))));
+    }
+  }
+
+  function drawPorts(g, block) {
+    const counts = block.ports;
+    if (!counts) return;
+    for (const kind of ['in', 'out', 'lconn', 'rconn']) {
+      for (let k = 1; k <= (counts[kind] || 0); k++) {
+        const pos = portPosition(block, kind, k);
+        if (kind === 'lconn' || kind === 'rconn') {
+          g.appendChild(el('rect', { x: pos.x - 2.5, y: pos.y - 2.5, width: 5, height: 5, class: 'port conn' }));
+        } else {
+          g.appendChild(el('circle', { cx: pos.x, cy: pos.y, r: 1.8, class: 'port' }));
+        }
+      }
+    }
+  }
+
+  function fitToView(system) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const grow = (p) => {
+      minX = Math.min(minX, p.left); minY = Math.min(minY, p.top);
+      maxX = Math.max(maxX, p.right); maxY = Math.max(maxY, p.bottom + 14);
+    };
+    system.blocks.forEach((b) => grow(b.position));
+    (system.annotations || []).forEach((a) => grow(a.position));
+    if (!Number.isFinite(minX)) return;
+    const rect = canvasContainer.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const pad = 24;
+    scale = Math.min((rect.width - 2 * pad) / Math.max(1, maxX - minX), (rect.height - 2 * pad) / Math.max(1, maxY - minY), 2);
+    panX = pad - minX * scale + (rect.width - 2 * pad - (maxX - minX) * scale) / 2;
+    panY = pad - minY * scale;
+    updateTransform();
+  }
+
+  let lastFittedSystem = null;
+
   function renderDiagram() {
     const system = getActiveSystem();
     if (!system) return;
 
     viewportGroup.innerHTML = '';
-
     const blockMap = new Map();
-    for (const b of system.blocks) {
-      blockMap.set(b.sid, b);
+    for (const b of system.blocks) blockMap.set(b.sid, b);
+
+    // 0. Annotations (titles and notes) sit behind everything.
+    const annGroup = el('g', { class: 'annotations-group' });
+    for (const a of system.annotations || []) {
+      const size = a.fontSize || 10;
+      a.text.split(/\n/).forEach((lineText, i) => {
+        annGroup.appendChild(el('text', {
+          x: a.position.left,
+          y: a.position.top + size * (i + 1),
+          class: 'slx-annotation' + (a.bold ? ' bold' : ''),
+          'font-size': size,
+        }, lineText));
+      });
     }
+    viewportGroup.appendChild(annGroup);
 
-    // 1. Draw Lines
-    const linesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    linesGroup.setAttribute('class', 'lines-group');
-
+    // 1. Lines, routed along the points saved in the model.
+    const linesGroup = el('g', { class: 'lines-group' });
     for (const line of system.lines) {
       if (!line.src || !line.dst) continue;
       const srcBlock = blockMap.get(line.src.sid);
       const dstBlock = blockMap.get(line.dst.sid);
       if (!srcBlock || !dstBlock) continue;
-
-      // Source port coordinate (right edge of src block)
-      const srcX = srcBlock.position.right;
-      const srcY = (srcBlock.position.top + srcBlock.position.bottom) / 2;
-
-      // Destination port coordinate (left edge of dst block)
-      const dstX = dstBlock.position.left;
-      const dstY = (dstBlock.position.top + dstBlock.position.bottom) / 2;
-
-      // Orthogonal routing path
-      const midX = (srcX + dstX) / 2;
-      const pathD = `M ${srcX} ${srcY} L ${midX} ${srcY} L ${midX} ${dstY} L ${dstX} ${dstY}`;
-
-      const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      pathEl.setAttribute('d', pathD);
-      let cls = 'slx-line';
+      const physical = /conn/i.test(line.src.portType) || /conn/i.test(line.dst.portType);
+      let cls = 'slx-line' + (physical ? ' physical' : '');
       if (line.logged) cls += ' logged';
-      pathEl.setAttribute('class', cls);
+      const pathEl = el('path', { d: linePath(line, srcBlock, dstBlock), class: cls });
+      if (!physical) pathEl.setAttribute('marker-end', 'url(#slx-arrow)');
+      if (line.name) pathEl.appendChild(el('title', {}, line.name));
 
-      // Line click handler
       pathEl.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (physical) return;
         if (line.logged) {
-          vscode.postMessage({
-            type: 'plotSignal',
-            name: line.name || srcBlock.name,
-          });
-        } else {
-          const enable = confirm(`Signal from '${srcBlock.name}' is not logged. Enable logging on this signal?`);
-          if (enable) {
-            vscode.postMessage({
-              type: 'enableLogging',
-              line: {
-                srcBlock: srcBlock.name,
-                srcPort: line.src.portNumber,
-              },
-            });
-          }
+          vscode.postMessage({ type: 'plotSignal', name: line.name || srcBlock.name });
+        } else if (confirm(`Signal from '${srcBlock.name}' is not logged. Enable logging on this signal?`)) {
+          vscode.postMessage({ type: 'enableLogging', line: { srcBlock: srcBlock.name, srcPort: line.src.portNumber } });
         }
       });
-
       linesGroup.appendChild(pathEl);
     }
     viewportGroup.appendChild(linesGroup);
 
-    // 2. Draw Blocks
-    const blocksGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    blocksGroup.setAttribute('class', 'blocks-group');
-
+    // 2. Blocks
+    const blocksGroup = el('g', { class: 'blocks-group' });
     for (const block of system.blocks) {
-      const bGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       let bClass = 'slx-block';
-
       if (currentDiff) {
-        if (currentDiff.changedBlockSids && currentDiff.changedBlockSids.includes(block.sid)) {
-          bClass += ' diff-changed';
-        } else if (currentDiff.addedBlockSids && currentDiff.addedBlockSids.includes(block.sid)) {
-          bClass += ' diff-added';
-        }
+        if (currentDiff.changedBlockSids && currentDiff.changedBlockSids.includes(block.sid)) bClass += ' diff-changed';
+        else if (currentDiff.addedBlockSids && currentDiff.addedBlockSids.includes(block.sid)) bClass += ' diff-added';
       }
+      if (selectedBlock && selectedBlock.sid === block.sid) bClass += ' selected';
+      const bGroup = el('g', { class: bClass });
 
-      if (selectedBlock && selectedBlock.sid === block.sid) {
-        bClass += ' selected';
+      drawGlyph(bGroup, block);
+      drawPorts(bGroup, block);
+
+      if ((block.parameters || {}).ShowName !== 'off') {
+        const { left, right, bottom } = block.position;
+        bGroup.appendChild(el('text', { x: (left + right) / 2, y: bottom + 10, class: 'block-name' }, block.name));
       }
-      bGroup.setAttribute('class', bClass);
+      bGroup.appendChild(el('title', {}, `${block.name} (${block.sourceBlock || block.type})`));
 
-      const width = Math.max(30, block.position.right - block.position.left);
-      const height = Math.max(20, block.position.bottom - block.position.top);
-
-      // Block rectangle
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', block.position.left);
-      rect.setAttribute('y', block.position.top);
-      rect.setAttribute('width', width);
-      rect.setAttribute('height', height);
-      bGroup.appendChild(rect);
-
-      // Block Name
-      const nameText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      nameText.setAttribute('x', block.position.left + width / 2);
-      nameText.setAttribute('y', block.position.top + height / 2);
-      nameText.setAttribute('class', 'block-name');
-      nameText.textContent = block.name;
-      bGroup.appendChild(nameText);
-
-      // Block Type label below
-      const typeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      typeText.setAttribute('x', block.position.left + width / 2);
-      typeText.setAttribute('y', block.position.bottom + 12);
-      typeText.setAttribute('class', 'block-type');
-      typeText.textContent = block.type;
-      bGroup.appendChild(typeText);
-
-      // Block Click: select & highlight in parameter table
       bGroup.addEventListener('click', (e) => {
         e.stopPropagation();
         selectedBlock = block;
@@ -487,20 +597,26 @@
         renderParamTable();
       });
 
-      // Subsystem drill-down on double click
-      if (block.type === 'SubSystem' && currentModel.subsystems[block.name]) {
+      // Subsystem files are named after the block's SID, not its name.
+      if (block.type === 'SubSystem' && currentModel.subsystems[block.sid]) {
+        bGroup.classList.add('drillable');
         bGroup.addEventListener('dblclick', (e) => {
           e.stopPropagation();
-          currentSystemName = block.name;
+          systemStack.push({ sid: block.sid, name: block.name });
+          currentSystemName = block.sid;
           selectedBlock = null;
           renderDiagram();
           renderParamTable();
         });
       }
-
       blocksGroup.appendChild(bGroup);
     }
     viewportGroup.appendChild(blocksGroup);
+
+    if (lastFittedSystem !== currentSystemName) {
+      lastFittedSystem = currentSystemName;
+      fitToView(system);
+    }
   }
 
   function renderParamTable() {
@@ -512,15 +628,21 @@
     // Subsystem breadcrumb if inside subsystem
     if (currentSystemName !== 'root') {
       const bc = document.createElement('div');
-      bc.style.marginBottom = '8px';
-      bc.innerHTML = `<a href="#" id="back-to-root" style="color:var(--vscode-textLink-foreground); font-size:11px;">← Back to Root Model</a>`;
-      asideContent.appendChild(bc);
-      document.getElementById('back-to-root').addEventListener('click', (e) => {
+      bc.className = 'slx-breadcrumb';
+      const back = document.createElement('a');
+      back.href = '#';
+      back.textContent = '← Up';
+      back.addEventListener('click', (e) => {
         e.preventDefault();
-        currentSystemName = 'root';
+        systemStack.pop();
+        currentSystemName = systemStack.length ? systemStack[systemStack.length - 1].sid : 'root';
+        selectedBlock = null;
         renderDiagram();
         renderParamTable();
       });
+      bc.appendChild(back);
+      bc.appendChild(document.createTextNode('  ' + ['model', ...systemStack.map((f) => f.name)].join(' / ')));
+      asideContent.appendChild(bc);
     }
 
     const title = document.createElement('div');
