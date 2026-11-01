@@ -59,14 +59,22 @@
     { passive: false }
   );
 
-  stage.addEventListener('keydown', (e) => {
+  // Shortcuts that still belong to the IDE, so the tab can be left with the keyboard.
+  function forIde(e) {
+    return (e.ctrlKey && (e.key === 'Tab' || e.key === 'PageUp' || e.key === 'PageDown')) || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p') || e.key === 'F1';
+  }
+  // Everything else goes to the app: stopping propagation keeps VS Code from also acting on Ctrl+S, Ctrl+Z, Ctrl+W, ...
+  function sendKey(e, down) {
+    if (forIde(e)) return;
     e.preventDefault();
-    vscode.postMessage({ type: 'key', down: true, vk: e.keyCode });
-  });
-  stage.addEventListener('keyup', (e) => {
-    e.preventDefault();
-    vscode.postMessage({ type: 'key', down: false, vk: e.keyCode });
-  });
+    e.stopPropagation();
+    vscode.postMessage({ type: 'key', down, vk: e.keyCode });
+  }
+  stage.addEventListener('keydown', (e) => sendKey(e, true));
+  stage.addEventListener('keyup', (e) => sendKey(e, false));
+  // A key still held when focus leaves would stay pressed in the app.
+  stage.addEventListener('blur', () => vscode.postMessage({ type: 'release' }));
+  window.addEventListener('blur', () => vscode.postMessage({ type: 'release' }));
 
   // Window sizes are physical pixels, so scale the tab size by the display's pixel ratio.
   let fitTimer = 0;

@@ -17,7 +17,9 @@
     "Other"
   ],
   "main": "./out/src/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "customEditors": [
       {
@@ -309,7 +311,8 @@
     "compile": "tsc -p .",
     "watch": "tsc -watch -p .",
     "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
-    "test:integration": "npm run compile && node out/test-integration/runTest.js"
+    "test:integration": "npm run compile && node out/test-integration/runTest.js",
+    "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

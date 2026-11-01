@@ -192,7 +192,7 @@ export class MatlabBridge {
     // 2. Prepare launch command
     // Normalize path with forward slashes for MATLAB string
     const normalizedScriptDir = this.bridgeScriptDir.replace(/\\/g, '/');
-    const batchCmd = `addpath('${normalizedScriptDir}'); eide_bridge(${this.port}, '${this.token}');`;
+    const batchCmd = `addpath('${normalizedScriptDir}'); eide_bridge(${this.port}, '${this.token}', ${process.pid});`;
 
     const proc = child_process.spawn(
       this.matlabPath,

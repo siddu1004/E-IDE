@@ -1,6 +1,7 @@
-function eide_bridge(port, expectedToken)
+function eide_bridge(port, expectedToken, parentPid)
 % E-IDE MATLAB Persistent Bridge
 % Listens on 127.0.0.1:<port> for JSON-RPC commands with token authentication.
+% Exits by itself once the IDE process parentPid is gone, so a closed or crashed IDE leaves no MATLAB behind.
 
     if nargin < 2
         error('Usage: eide_bridge(port, token)');
@@ -11,6 +12,9 @@ function eide_bridge(port, expectedToken)
     end
     if isstring(expectedToken)
         expectedToken = char(expectedToken);
+    end
+    if nargin < 3
+        parentPid = 0;
     end
 
     fprintf('EIDE_BRIDGE_STARTING: port=%d\n', port);
@@ -26,7 +30,15 @@ function eide_bridge(port, expectedToken)
     fprintf('EIDE_BRIDGE_READY: port=%d\n', port);
 
     keepRunning = true;
+    lastParentCheck = tic;
     while keepRunning
+        if toc(lastParentCheck) > 2
+            lastParentCheck = tic;
+            if ~parentAlive(parentPid)
+                fprintf('EIDE_BRIDGE_PARENT_GONE: pid=%d\n', parentPid);
+                break;
+            end
+        end
         try
             if server.Connected && server.NumBytesAvailable > 0
                 line = readline(server);
@@ -54,6 +66,24 @@ function eide_bridge(port, expectedToken)
     delete(server);
     fprintf('EIDE_BRIDGE_STOPPED\n');
     exit;
+end
+
+function alive = parentAlive(pid)
+    if pid <= 0
+        alive = true;
+        return;
+    end
+    try
+        if ispc
+            p = System.Diagnostics.Process.GetProcessById(pid);
+            alive = ~p.HasExited;
+        else
+            alive = system(sprintf('kill -0 %d 2>/dev/null', pid)) == 0;
+        end
+    catch err
+        % .NET reports "Process with an Id of N is not running."; any other failure keeps the bridge up.
+        alive = ~contains(err.message, 'not running');
+    end
 end
 
 function resp = handleMessage(rawJson, expectedToken)

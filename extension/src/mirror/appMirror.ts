@@ -6,7 +6,20 @@ import * as vscode from 'vscode';
 import * as child_process from 'child_process';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { AppWindow, MirrorApp, MIRROR_APPS, appForFile, appPids, findAppExecutable, getMirrorApp, launchArgs } from './mirrorApps';
+import {
+  AppWindow,
+  MirrorApp,
+  MIRROR_APPS,
+  appForFile,
+  appPids,
+  findAppExecutable,
+  getMirrorApp,
+  launchArgs,
+  launchExecutable,
+  matlabReloadCommand,
+  matlabString,
+  windowsShowingFile,
+} from './mirrorApps';
 
 export interface MirrorFrame {
   width: number;
@@ -202,7 +215,7 @@ export class AppMirrorController implements vscode.Disposable {
         return undefined;
       }
       const before = new Set(pids);
-      child_process.spawn(exe, launchArgs(app, filePath), { detached: true, stdio: 'ignore' }).unref();
+      child_process.spawn(launchExecutable(app, exe, filePath), launchArgs(app, filePath), { detached: true, stdio: 'ignore' }).unref();
       pids = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${app.label}...` },
         async () => {
@@ -219,14 +232,51 @@ export class AppMirrorController implements vscode.Disposable {
         vscode.window.showErrorMessage(`E-IDE: ${app.label} started but no window appeared.`);
         return undefined;
       }
-    } else if (filePath && app.id === 'matlab') {
-      vscode.window.showInformationMessage(
-        `MATLAB is already open, so E-IDE is showing it here. Open ${path.basename(filePath)} from MATLAB's Current Folder.`
-      );
     }
 
     entry.session.send(`attach ${pids.join(',')}`);
+    if (!mustLaunch && filePath && app.id === 'matlab') await this.runInMatlab(entry, `open(${matlabString(filePath)})`);
     return entry;
+  }
+
+  /** Runs a command in the user's MATLAB desktop by typing it into its Command Window. */
+  private async runInMatlab(entry: OpenMirror, command: string): Promise<void> {
+    const main = (await entry.session.listWindows()).find((w) => w.process.toLowerCase() === 'matlab' && /^MATLAB R\d/.test(w.title));
+    if (!main) throw new Error('The MATLAB desktop window was not found.');
+    const s = entry.session;
+    s.send(`focus ${main.hwnd}`);
+    ['key down 17', 'key down 48', 'key up 48', 'key up 17'].forEach((k) => s.send(k)); // Ctrl+0 selects the Command Window
+    await new Promise((r) => setTimeout(r, 500));
+    for (const ch of command) s.send(`char ${ch.codePointAt(0)}`);
+    s.send('key down 13');
+    s.send('key up 13');
+  }
+
+  /**
+   * Shows the file as it is now on disk. MATLAB reopens the model; other apps close the window
+   * holding the file (they ask about unsaved work in the tab first) and open it again.
+   */
+  async reload(appId: string, filePath: string): Promise<void> {
+    const app = getMirrorApp(appId);
+    if (!app) return;
+    const entry = await this.attach(appId);
+    if (!entry) return;
+    if (app.id === 'matlab') {
+      const command = matlabReloadCommand(filePath);
+      if (command) await this.runInMatlab(entry, command);
+      return this.show(appId);
+    }
+    const holding = windowsShowingFile(app, await entry.session.listWindows(), filePath);
+    holding.forEach((w) => entry.session.send(`close ${w.hwnd}`));
+    const deadline = Date.now() + 60000; // time to answer a save prompt
+    while (holding.length && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const open = new Set((await entry.session.listWindows()).map((w) => w.hwnd));
+      if (!holding.some((w) => open.has(w.hwnd))) break;
+    }
+    const still = new Set((await entry.session.listWindows()).map((w) => w.hwnd));
+    if (holding.some((w) => still.has(w.hwnd))) return; // the user kept the window open
+    await this.show(appId, filePath);
   }
 
   async show(appId: string, filePath?: string): Promise<void> {
@@ -254,6 +304,9 @@ export class AppMirrorController implements vscode.Disposable {
           break;
         case 'key':
           entry.session.send(`key ${msg.down ? 'down' : 'up'} ${msg.vk | 0}`);
+          break;
+        case 'release':
+          entry.session.send('release');
           break;
         case 'fit':
           entry.session.send(`fit ${msg.width | 0} ${msg.height | 0}`);

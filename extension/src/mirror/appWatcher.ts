@@ -93,7 +93,7 @@ export class AppFileWatcher implements vscode.Disposable {
     const prompt = formatReloadPrompt(entry.app.label);
     const choice = await vscode.window.showInformationMessage(prompt, 'Reload');
     if (choice === 'Reload') {
-      await this.appMirror.show(entry.app.id, entry.filePath);
+      await this.appMirror.reload(entry.app.id, entry.filePath);
       return true;
     }
     return false;

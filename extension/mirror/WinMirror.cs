@@ -4,8 +4,10 @@
 //   attach <pid,pid,...>          -> streams {"type":"frame",...} for every visible window of those processes
 //   fit <width> <height>          -> resizes the app's main window to the tab size
 //   mouse <move|down|up|dbl|wheel> <x> <y> <button 0|1|2> <wheelDelta>   (x, y in frame pixels)
-//   key <down|up> <virtualKey>    char <codepoint>
+//   key <down|up> <virtualKey>    char <codepoint>    release   (lets go of held keys when the tab loses focus)
 //   snap                          -> sends the next frame even if nothing changed
+//   focus <hwnd>                  -> keyboard input goes to that window from now on (for the agent and reloads)
+//   close <hwnd>                  -> asks that window to close, as its close button would
 // Windows are captured with PrintWindow, so the app keeps rendering while the IDE covers it,
 // and input is posted to the window under the pointer without moving the real mouse.
 using System;
@@ -44,6 +46,9 @@ public static class WinMirror
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int index);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int value, int size);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] static extern bool GetKeyboardState(byte[] state);
+    [DllImport("user32.dll")] static extern bool SetKeyboardState(byte[] state);
+    [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint mapType);
 
     const int GWL_EXSTYLE = -20, WS_EX_TOOLWINDOW = 0x80;
     const uint PW_RENDERFULLCONTENT = 2;
@@ -55,6 +60,7 @@ public static class WinMirror
     static IntPtr focusTarget = IntPtr.Zero;
     static bool forceFrame;
     static long lastHash;
+    static readonly HashSet<int> held = new HashSet<int>(); // keys pressed in the tab, guarded by Gate
 
     public static void Main()
     {
@@ -85,8 +91,11 @@ public static class WinMirror
             case "fit": Fit(int.Parse(a[1]), int.Parse(a[2])); break;
             case "mouse": Mouse(a[1], int.Parse(a[2]), int.Parse(a[3]), int.Parse(a[4]), int.Parse(a[5])); break;
             case "key": Key(a[1] == "down", int.Parse(a[2])); break;
+            case "release": lock (Gate) held.Clear(); SyncKeys(focusTarget); break;
             case "char": if (focusTarget != IntPtr.Zero) PostMessage(focusTarget, 0x0102, (IntPtr)int.Parse(a[1]), (IntPtr)1); break;
             case "snap": lock (Gate) forceFrame = true; break;
+            case "focus": Focus((IntPtr)long.Parse(a[1])); break;
+            case "close": PostMessage((IntPtr)long.Parse(a[1]), 0x0010, IntPtr.Zero, IntPtr.Zero); break; // WM_CLOSE
         }
     }
 
@@ -298,21 +307,41 @@ public static class WinMirror
         IntPtr h; POINT c, s;
         if (!Target(x, y, out h, out c, out s)) return;
         IntPtr lp = Pack(c.X, c.Y);
-        int held = button == 0 ? 1 : button == 2 ? 2 : button == 1 ? 0x10 : 0; // MK_LBUTTON / MK_RBUTTON / MK_MBUTTON
+        int buttons = button == 0 ? 1 : button == 2 ? 2 : button == 1 ? 0x10 : 0; // MK_LBUTTON / MK_RBUTTON / MK_MBUTTON
+        lock (Gate) { if (held.Contains(16)) buttons |= 4; if (held.Contains(17)) buttons |= 8; } // MK_SHIFT / MK_CONTROL for shift- and ctrl-clicks
+        int mods = buttons & 0xC;
         uint down = button == 2 ? 0x0204u : button == 1 ? 0x0207u : 0x0201u;
         switch (kind)
         {
-            case "move": PostMessage(h, 0x0200, (IntPtr)held, lp); break;
+            case "move": PostMessage(h, 0x0200, (IntPtr)(button < 0 ? mods : buttons), lp); break;
             case "down":
                 GiveFocus(h);
-                PostMessage(h, 0x0200, IntPtr.Zero, lp);
-                PostMessage(h, down, (IntPtr)held, lp);
+                PostMessage(h, 0x0200, (IntPtr)mods, lp);
+                PostMessage(h, down, (IntPtr)buttons, lp);
                 break;
-            case "up": PostMessage(h, down + 1, IntPtr.Zero, lp); break;
-            case "dbl": PostMessage(h, down + 2, (IntPtr)held, lp); break;
-            case "wheel": PostMessage(h, 0x020A, (IntPtr)(delta << 16), Pack(s.X, s.Y)); break;
+            case "up": PostMessage(h, down + 1, (IntPtr)mods, lp); break;
+            case "dbl": PostMessage(h, down + 2, (IntPtr)buttons, lp); break;
+            case "wheel": PostMessage(h, 0x020A, (IntPtr)((delta << 16) | mods), Pack(s.X, s.Y)); break;
         }
         lock (Gate) forceFrame = true;
+    }
+
+    // Focuses the control in the middle of a window, which is the main content area in these apps.
+    static void Focus(IntPtr top)
+    {
+        if (!IsWindow(top)) return;
+        RECT r;
+        GetWindowRect(top, out r);
+        IntPtr h = top;
+        while (true)
+        {
+            POINT p = new POINT { X = (r.L + r.R) / 2, Y = (r.T + r.B) / 2 };
+            ScreenToClient(h, ref p);
+            IntPtr c = ChildWindowFromPointEx(h, p, 0x0001 | 0x0004);
+            if (c == IntPtr.Zero || c == h) break;
+            h = c;
+        }
+        GiveFocus(h);
     }
 
     // Keyboard input goes to the focused control of the app's thread, so set focus there without activating the app.
@@ -327,12 +356,82 @@ public static class WinMirror
         focusTarget = h;
     }
 
+    static readonly int[] ExtendedKeys = { 33, 34, 35, 36, 37, 38, 39, 40, 45, 46, 91, 92, 93, 111, 144 };
+
+    // Posted keys do not change the key state, so shortcuts like Ctrl+S would arrive as a plain S.
+    // Write the held modifiers into the app thread's key state first, then post the key.
     static void Key(bool down, int vk)
     {
-        if (focusTarget == IntPtr.Zero || !IsWindow(focusTarget)) return;
-        long lp = down ? 1 : unchecked((int)0xC0000001);
-        PostMessage(focusTarget, down ? 0x0100u : 0x0101u, (IntPtr)vk, (IntPtr)lp);
+        IntPtr h = focusTarget;
+        if (h == IntPtr.Zero || !IsWindow(h)) return;
+        bool alt, repeat;
+        lock (Gate)
+        {
+            repeat = down && held.Contains(vk);
+            if (down) held.Add(vk); else held.Remove(vk);
+            alt = held.Contains(18);
+        }
+        if (down) SyncKeys(h);
+        bool modifier = vk == 16 || vk == 17 || vk == 18;
+        bool sys = alt || vk == 18 || vk == 121; // Alt combinations and F10 are system keys (menus)
+        long lp = 1 | ((long)MapVirtualKey((uint)vk, 0) << 16);
+        if (Array.IndexOf(ExtendedKeys, vk) >= 0) lp |= 1L << 24;
+        if (alt) lp |= 1L << 29;
+        if (repeat) lp |= 1L << 30;
+        if (!down) lp |= 3L << 30;
+        uint msg = (sys ? 0x0104u : 0x0100u) + (down ? 0u : 1u); // WM_(SYS)KEYDOWN / WM_(SYS)KEYUP
+        PostMessage(h, msg, (IntPtr)vk, (IntPtr)unchecked((int)lp));
+        if (!down)
+        {
+            if (modifier) Thread.Sleep(120); // let the app handle the posted keys before the modifier leaves its key state
+            SyncKeys(h);
+        }
         lock (Gate) forceFrame = true;
+    }
+
+    static uint attachedThread; // the app thread whose key state we share while keys are held
+
+    // Key state is only shared while the threads stay attached, so stay attached until every key is up.
+    // Called from the command thread only, since attachment belongs to the calling thread.
+    static void SyncKeys(IntPtr h)
+    {
+        uint me = GetCurrentThreadId(), pid, thread = h != IntPtr.Zero && IsWindow(h) ? GetWindowThreadProcessId(h, out pid) : 0;
+        bool any;
+        lock (Gate) any = held.Count > 0;
+        if (attachedThread != 0 && attachedThread != thread)
+        {
+            AttachThreadInput(me, attachedThread, false);
+            attachedThread = 0;
+        }
+        if (thread == 0) return;
+        if (attachedThread == 0)
+        {
+            if (!AttachThreadInput(me, thread, true)) return;
+            attachedThread = thread;
+        }
+        try
+        {
+            var state = new byte[256];
+            GetKeyboardState(state);
+            foreach (int k in new[] { 16, 17, 18, 160, 161, 162, 163, 164, 165 }) state[k] = 0;
+            lock (Gate)
+                foreach (int k in held)
+                {
+                    state[k & 0xFF] = 0x80;
+                    if (k == 16) state[160] = 0x80; // VK_LSHIFT
+                    if (k == 17) state[162] = 0x80; // VK_LCONTROL
+                    if (k == 18) state[164] = 0x80; // VK_LMENU
+                }
+            SetKeyboardState(state);
+        }
+        finally
+        {
+            if (!any)
+            {
+                AttachThreadInput(me, thread, false);
+                attachedThread = 0;
+            }
+        }
     }
 
     static readonly object OutGate = new object();

@@ -33,7 +33,7 @@ You can open a desktop app inside E-IDE using any of the following methods:
 ### Limitations
 
 - **Platform**: Windows only (powered by Windows desktop window capture).
-- **Keyboard Input**: `Ctrl` keyboard shortcuts are not currently forwarded to mirrored windows.
+- **Keyboard Input**: While an app tab has focus, keys and shortcuts (`Ctrl+S`, `Ctrl+Z`, ...) go to the app. `Ctrl+Tab`, `Ctrl+PageUp/PageDown`, `Ctrl+Shift+P` and `F1` stay with the IDE.
 
 ## Requirements
 

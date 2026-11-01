@@ -1,0 +1,9 @@
+src/**
+test/**
+test-integration/**
+out/test/**
+out/test-integration/**
+.vscode-test/**
+tsconfig.json
+**/*.map
+**/*.vsix

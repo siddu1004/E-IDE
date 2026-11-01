@@ -103,9 +103,35 @@ export function appPids(app: MirrorApp, windows: AppWindow[]): number[] {
   return [...new Set(windows.filter((w) => names.includes(w.process.toLowerCase())).map((w) => w.pid))];
 }
 
+/** KiCad opens schematics and boards in their own editors rather than in the project manager. */
+export function launchExecutable(app: MirrorApp, exe: string, filePath?: string, exists: (p: string) => boolean = fs.existsSync): string {
+  if (app.id !== 'kicad' || !filePath) return exe;
+  const editor = ({ '.kicad_sch': 'eeschema.exe', '.kicad_pcb': 'pcbnew.exe' } as Record<string, string>)[path.extname(filePath).toLowerCase()];
+  const candidate = editor ? path.join(path.dirname(exe), editor) : undefined;
+  return candidate && exists(candidate) ? candidate : exe;
+}
+
+/** A MATLAB char literal: 'it''s'. */
+export function matlabString(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+/** MATLAB command that reopens a model from disk; close_system refuses a model with unsaved changes, so none are lost. */
+export function matlabReloadCommand(filePath: string): string | undefined {
+  if (!/\.(slx|mdl)$/i.test(filePath)) return undefined; // the MATLAB Editor reloads changed scripts itself
+  return `close_system(${matlabString(path.parse(filePath).name)}); open_system(${matlabString(filePath)})`;
+}
+
+/** Windows of the app that show this file: KiCad and LTspice put the file name in the title. */
+export function windowsShowingFile(app: MirrorApp, windows: AppWindow[], filePath: string): AppWindow[] {
+  const owners = new Set(appPids(app, windows));
+  const name = path.parse(filePath).name.toLowerCase();
+  return windows.filter((w) => owners.has(w.pid) && w.title.toLowerCase().includes(name));
+}
+
 /** Command-line arguments that open a file in the app. */
 export function launchArgs(app: MirrorApp, filePath?: string): string[] {
   if (!filePath) return app.id === 'matlab' ? ['-desktop'] : [];
-  if (app.id === 'matlab') return ['-desktop', '-r', `open('${filePath.replace(/'/g, "''")}')`];
+  if (app.id === 'matlab') return ['-desktop', '-r', `open(${matlabString(filePath)})`];
   return [filePath];
 }

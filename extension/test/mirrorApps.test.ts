@@ -1,6 +1,15 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appForFile, appPids, findAppExecutable, getMirrorApp, launchArgs } from '../src/mirror/mirrorApps';
+import {
+  appForFile,
+  appPids,
+  findAppExecutable,
+  getMirrorApp,
+  launchArgs,
+  launchExecutable,
+  matlabReloadCommand,
+  windowsShowingFile,
+} from '../src/mirror/mirrorApps';
 
 const windows = [
   { hwnd: 1, pid: 10, process: 'MATLAB', title: 'MATLAB R2026a' },
@@ -37,4 +46,29 @@ test('launchArgs opens files, quoting paths for MATLAB', () => {
   assert.deepEqual(launchArgs(getMirrorApp('kicad')!, 'C:\\p\\a.kicad_pro'), ['C:\\p\\a.kicad_pro']);
   assert.deepEqual(launchArgs(getMirrorApp('matlab')!, "C:\\it's\\m.slx"), ['-desktop', '-r', "open('C:\\it''s\\m.slx')"]);
   assert.deepEqual(launchArgs(getMirrorApp('arduino')!), []);
+});
+
+test('KiCad opens schematics and boards in their own editors', () => {
+  const kicad = getMirrorApp('kicad')!;
+  const exe = require('path').join('C:\K', 'bin', 'kicad.exe');
+  const has = () => true;
+  assert.match(launchExecutable(kicad, exe, 'a.kicad_sch', has), /eeschema\.exe$/);
+  assert.match(launchExecutable(kicad, exe, 'a.kicad_pcb', has), /pcbnew\.exe$/);
+  assert.equal(launchExecutable(kicad, exe, 'a.kicad_pro', has), exe);
+  assert.equal(launchExecutable(kicad, exe, 'a.kicad_sch', () => false), exe);
+  assert.equal(launchExecutable(getMirrorApp('ltspice')!, 'L.exe', 'a.asc', has), 'L.exe');
+});
+
+test('matlabReloadCommand reopens models without discarding unsaved edits', () => {
+  assert.equal(
+    matlabReloadCommand("C:/it's/mppt.slx"),
+    "close_system('mppt'); open_system('C:/it''s/mppt.slx')"
+  );
+  assert.equal(matlabReloadCommand('run.m'), undefined);
+});
+
+test('windowsShowingFile finds the app windows titled with the file', () => {
+  const shown = windowsShowingFile(getMirrorApp('kicad')!, windows, 'C:/p/board.kicad_pcb');
+  assert.deepEqual(shown.map((w) => w.hwnd), [4]);
+  assert.deepEqual(windowsShowingFile(getMirrorApp('matlab')!, windows, 'board.kicad_pcb'), []);
 });
