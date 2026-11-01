@@ -11,6 +11,7 @@ import { findMatlab } from './matlab/matlabFinder';
 import { MatlabScriptRunner } from './matlab/matlabScriptRunner';
 import { SlxEditorProvider } from './simulink/slxEditorProvider';
 import { ArduinoController } from './arduino/arduinoController';
+import { AppMirrorController, setAppMirror } from './mirror/appMirror';
 
 let activeMatlabBridge: MatlabBridge | undefined;
 let activeMcpServer: EidMcpServer | undefined;
@@ -39,6 +40,11 @@ export function activate(context: vscode.ExtensionContext) {
   // 3. Arduino Support
   const arduinoController = new ArduinoController(context);
   context.subscriptions.push(arduinoController);
+
+  // 3b. Desktop apps (MATLAB, KiCad, LTspice, Arduino IDE) shown live inside a tab
+  const appMirror = new AppMirrorController(context);
+  setAppMirror(appMirror);
+  context.subscriptions.push(appMirror, { dispose: () => setAppMirror(undefined) });
 
   // 4. MCP Server inside extension
   const mcpServer = new EidMcpServer(context);

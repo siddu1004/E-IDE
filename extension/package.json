@@ -120,6 +120,16 @@
       {
         "command": "eide.arduino.installCli",
         "title": "E-IDE: Install arduino-cli"
+      },
+      {
+        "command": "eide.apps.open",
+        "title": "E-IDE: Open Desktop App Inside IDE (MATLAB, KiCad, LTspice, Arduino IDE)",
+        "icon": "$(window)"
+      },
+      {
+        "command": "eide.apps.openFile",
+        "title": "E-IDE: Open in Desktop App Inside IDE",
+        "icon": "$(window)"
       }
     ],
     "menus": {
@@ -148,6 +158,18 @@
           "command": "eide.arduino.openSerial",
           "when": "resourceExtname == .ino",
           "group": "navigation@5"
+        },
+        {
+          "command": "eide.apps.openFile",
+          "when": "resourceExtname =~ /^\\.(slx|mdl|kicad_sch|kicad_pcb|asc)$/",
+          "group": "navigation@9"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "eide.apps.openFile",
+          "when": "resourceExtname =~ /^\\.(slx|mdl|m|mlx|kicad_pro|kicad_sch|kicad_pcb|asc|ino)$/",
+          "group": "navigation@9"
         }
       ]
     },
@@ -213,6 +235,26 @@
           "type": "string",
           "default": "",
           "description": "Currently selected serial port for Arduino upload and serial monitor."
+        },
+        "eide.apps.matlabPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to MATLAB (matlab.exe), used when E-IDE cannot find it in the usual install folders."
+        },
+        "eide.apps.kicadPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to KiCad (kicad.exe), used when E-IDE cannot find it in the usual install folders."
+        },
+        "eide.apps.ltspicePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to LTspice (LTspice.exe), used when E-IDE cannot find it in the usual install folders."
+        },
+        "eide.apps.arduinoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Arduino IDE (Arduino IDE.exe), used when E-IDE cannot find it in the usual install folders."
         }
       }
     }

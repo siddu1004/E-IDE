@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { activeAppMirror } from '../mirror/appMirror';
 import * as http from 'http';
 import * as vscode from 'vscode';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -561,6 +562,77 @@ export class EidMcpServer {
       async ({ port, baud, seconds }) => {
         const res = await tools.readSerial(port, baud, seconds);
         return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 31. Desktop apps shown inside E-IDE (MATLAB, KiCad, LTspice, Arduino IDE)
+    const appIds = ['matlab', 'kicad', 'ltspice', 'arduino'] as const;
+    const mirror = () => {
+      if (!activeAppMirror) throw new Error('Desktop app mirroring is not available.');
+      return activeAppMirror;
+    };
+    const frameContent = (f: { width: number; height: number; title: string; jpeg: string }, note: string) => ({
+      content: [
+        { type: 'text' as const, text: `${note} Window '${f.title}', ${f.width}x${f.height} px; click coordinates use these pixels.` },
+        { type: 'image' as const, data: f.jpeg, mimeType: 'image/jpeg' },
+      ],
+    });
+
+    mcp.tool(
+      'listDesktopApps',
+      'List the EEE desktop apps E-IDE can show inside the IDE, whether each is installed and running, and its open windows.',
+      {},
+      async () => ({ content: [{ type: 'text', text: JSON.stringify(await mirror().status(), null, 2) }] })
+    );
+
+    mcp.tool(
+      'openDesktopApp',
+      'Open a desktop app (starting it if needed) live inside an E-IDE tab, optionally with a workspace file. If it is not installed the user is asked to install it.',
+      {
+        app: z.enum(appIds).describe('Which app'),
+        path: z.string().optional().describe('Optional workspace file to open in the app'),
+      },
+      async ({ app, path: file }) => {
+        const resolved = file ? tools.assertPathInWorkspace(file) : undefined;
+        await mirror().show(app, resolved);
+        return frameContent(await mirror().capture(app), `${app} is open in an E-IDE tab.`);
+      }
+    );
+
+    mcp.tool(
+      'captureDesktopApp',
+      'See a desktop app: returns a picture of all its windows as the user sees them in the E-IDE tab.',
+      { app: z.enum(appIds).describe('Which app') },
+      async ({ app }) => frameContent(await mirror().capture(app), 'Current view.')
+    );
+
+    mcp.tool(
+      'clickDesktopApp',
+      'Click inside a desktop app at pixel coordinates of the last captureDesktopApp picture. Returns the picture after the click.',
+      {
+        app: z.enum(appIds).describe('Which app'),
+        x: z.number().describe('X pixel in the captured picture'),
+        y: z.number().describe('Y pixel in the captured picture'),
+        button: z.enum(['left', 'right']).optional().default('left'),
+        double: z.boolean().optional().default(false).describe('Double-click'),
+      },
+      async ({ app, x, y, button, double }) => {
+        await tools.checkAgentApproval(app, `${double ? 'double-click' : 'click'} at (${Math.round(x)}, ${Math.round(y)})`);
+        return frameContent(await mirror().click(app, x, y, button === 'right' ? 2 : 0, double), 'After click.');
+      }
+    );
+
+    mcp.tool(
+      'typeInDesktopApp',
+      'Type text into the control of a desktop app that was last clicked (for example the MATLAB Command Window). Returns the picture afterwards.',
+      {
+        app: z.enum(appIds).describe('Which app'),
+        text: z.string().max(2000).describe('Text to type'),
+        pressEnter: z.boolean().optional().default(false),
+      },
+      async ({ app, text, pressEnter }) => {
+        await tools.checkAgentApproval(app, `type "${text.slice(0, 60)}"${pressEnter ? ' and press Enter' : ''}`);
+        return frameContent(await mirror().type(app, text, pressEnter), 'After typing.');
       }
     );
 
