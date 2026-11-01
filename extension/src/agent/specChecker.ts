@@ -18,6 +18,7 @@ export interface DesignSpec {
   settling_time_s?: SpecMetricTarget;
   ripple_v?: SpecMetricTarget;
   ripple_mv?: SpecMetricTarget;
+  mean_v?: SpecMetricTarget;
   final_value?: SpecMetricTarget;
 }
 
@@ -120,6 +121,30 @@ export function evaluateSpec(
       if (!ev.pass) allPass = false;
       totalErrorScore += (ev.error_pct || 0);
     }
+  }
+
+  // 6. Mean output voltage (in steady-state, e.g. buck converter final periods)
+  if (spec.mean_v) {
+    let meanV: number | null = null;
+    if (rawWaveform && rawWaveform.y.length > 0) {
+      const n = rawWaveform.y.length;
+      const startIdx = Math.floor(n * 0.7);
+      const steadyY = rawWaveform.y.slice(startIdx);
+      const sum = steadyY.reduce((acc, v) => acc + v, 0);
+      meanV = sum / steadyY.length;
+    } else if (summary.signals.length > 0) {
+      const targetSig = spec.signal?.toUpperCase();
+      const foundSig = targetSig
+        ? summary.signals.find((s) => s.name.toUpperCase() === targetSig)
+        : (summary.signals.find((s) => s.name.toUpperCase().includes('OUT')) || summary.signals[0]);
+      if (foundSig) {
+        meanV = (foundSig.min + foundSig.max) / 2;
+      }
+    }
+    const ev = checkTarget('mean_v', meanV, spec.mean_v);
+    evaluations['mean_v'] = ev;
+    if (!ev.pass) allPass = false;
+    totalErrorScore += (ev.error_pct || 0);
   }
 
   return {

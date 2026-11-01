@@ -204,10 +204,28 @@ export function addComponentToAsc(
   let y = 128;
 
   if (nearRef) {
-    const nearComp = existing.find((c) => c.ref.toUpperCase() === nearRef.toUpperCase());
+    let targetRef = nearRef;
+    let relDir = 'right';
+    const m = nearRef.match(/^(above|below|left|right)[:(]([A-Za-z0-9_]+)\)?$/i);
+    if (m) {
+      relDir = m[1].toLowerCase();
+      targetRef = m[2];
+    }
+    const nearComp = existing.find((c) => c.ref.toUpperCase() === targetRef.toUpperCase());
     if (nearComp) {
-      x = nearComp.x + 96;
-      y = nearComp.y;
+      if (relDir === 'above') {
+        x = nearComp.x;
+        y = nearComp.y - 80;
+      } else if (relDir === 'below') {
+        x = nearComp.x;
+        y = nearComp.y + 64;
+      } else if (relDir === 'left') {
+        x = nearComp.x - 96;
+        y = nearComp.y;
+      } else {
+        x = nearComp.x + 96;
+        y = nearComp.y;
+      }
     }
   } else if (existing.length > 0) {
     const maxX = Math.max(...existing.map((c) => c.x));
@@ -270,21 +288,83 @@ export function resolvePinCoord(components: ComponentInstance[], pinAddr: string
   return found;
 }
 
+function segmentCrossesPin(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  components: ComponentInstance[],
+  ignorePins: PlacedPin[]
+): boolean {
+  for (const c of components) {
+    for (const p of c.pins) {
+      if (ignorePins.some((ip) => ip.x === p.x && ip.y === p.y)) continue;
+      // Vertical segment
+      if (x1 === x2 && p.x === x1) {
+        if (p.y >= Math.min(y1, y2) && p.y <= Math.max(y1, y2)) {
+          return true;
+        }
+      }
+      // Horizontal segment
+      if (y1 === y2 && p.y === y1) {
+        if (p.x >= Math.min(x1, x2) && p.x <= Math.max(x1, x2)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /**
- * Connects two pins in an LTspice .asc schematic using orthogonal wire routing.
+ * Connects two pins in an LTspice .asc schematic using orthogonal wire routing,
+ * or attaches a net flag/label if one pin address is a label without a dot (e.g. 'out' or '0').
  */
 export function connectPinsInAsc(content: string, pinA: string, pinB: string): string {
   const components = parseAscComponents(content);
+
+  // If one of the endpoints is a net label/ground flag (e.g. 'out', '0', 'GND')
+  if (!pinB.includes('.')) {
+    const pA = resolvePinCoord(components, pinA);
+    const label = pinB.toUpperCase() === 'GND' ? '0' : pinB;
+    return content.trimEnd() + `\nFLAG ${pA.x} ${pA.y} ${label}\n`;
+  }
+  if (!pinA.includes('.')) {
+    const pB = resolvePinCoord(components, pinB);
+    const label = pinA.toUpperCase() === 'GND' ? '0' : pinA;
+    return content.trimEnd() + `\nFLAG ${pB.x} ${pB.y} ${label}\n`;
+  }
+
   const pA = resolvePinCoord(components, pinA);
   const pB = resolvePinCoord(components, pinB);
+
+  if (pA.x === pB.x && pA.y === pB.y) {
+    return content;
+  }
 
   let wires = '';
   if (pA.x === pB.x || pA.y === pB.y) {
     // Direct horizontal or vertical wire
     wires = `WIRE ${pA.x} ${pA.y} ${pB.x} ${pB.y}\n`;
   } else {
-    // Orthogonal 2-segment L-route
-    wires = `WIRE ${pA.x} ${pA.y} ${pB.x} ${pA.y}\nWIRE ${pB.x} ${pA.y} ${pB.x} ${pB.y}\n`;
+    // Select orthogonal route that avoids intermediate pin collision
+    const ignore = [pA, pB];
+    const a1Crosses = segmentCrossesPin(pA.x, pA.y, pB.x, pA.y, components, ignore);
+    const a2Crosses = segmentCrossesPin(pB.x, pA.y, pB.x, pB.y, components, ignore);
+    const routeACrosses = a1Crosses || a2Crosses;
+
+    const b1Crosses = segmentCrossesPin(pA.x, pA.y, pA.x, pB.y, components, ignore);
+    const b2Crosses = segmentCrossesPin(pA.x, pB.y, pB.x, pB.y, components, ignore);
+    const routeBCrosses = b1Crosses || b2Crosses;
+
+    if (!routeACrosses) {
+      wires = `WIRE ${pA.x} ${pA.y} ${pB.x} ${pA.y}\nWIRE ${pB.x} ${pA.y} ${pB.x} ${pB.y}\n`;
+    } else if (!routeBCrosses) {
+      wires = `WIRE ${pA.x} ${pA.y} ${pA.x} ${pB.y}\nWIRE ${pA.x} ${pB.y} ${pB.x} ${pB.y}\n`;
+    } else {
+      const jogY = Math.max(pA.y, pB.y) + 32;
+      wires = `WIRE ${pA.x} ${pA.y} ${pA.x} ${jogY}\nWIRE ${pA.x} ${jogY} ${pB.x} ${jogY}\nWIRE ${pB.x} ${jogY} ${pB.x} ${pB.y}\n`;
+    }
   }
 
   return content.trimEnd() + '\n' + wires;

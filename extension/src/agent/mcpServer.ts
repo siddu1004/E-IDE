@@ -360,10 +360,11 @@ export class EidMcpServer {
         filePath: z.string().describe('Path to the schematic file inside workspace'),
         type: z.string().describe('Component type (e.g. R, C, V, opamp, GND)'),
         value: z.string().describe('Component value or model (e.g. 10k, 100n, 12, SINE(0 1 1k))'),
-        near: z.string().optional().describe('Optional reference designator to place near (e.g. R1)'),
+        near: z.string().optional().describe('Optional reference designator or relative direction to place near (e.g. R1, above:R2, below:S1)'),
+        orientation: z.string().optional().describe('Optional symbol rotation (e.g. R0, R90, R180, R270)'),
       },
-      async ({ filePath, type, value, near }) => {
-        const res = await tools.addComponent(filePath, type, value, near);
+      async ({ filePath, type, value, near, orientation }) => {
+        const res = await tools.addComponent(filePath, type, value, near, orientation);
         return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
       }
     );

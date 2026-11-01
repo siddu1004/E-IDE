@@ -784,7 +784,8 @@ export async function addComponent(
   filePath: string,
   type: string,
   value: string,
-  near?: string
+  near?: string,
+  orientation?: string
 ): Promise<{ ref: string; filePath: string }> {
   const resolved = assertPathInWorkspace(filePath);
   const ext = path.extname(resolved).toLowerCase();
@@ -802,7 +803,7 @@ export async function addComponent(
   const doc = await vscode.workspace.openTextDocument(uri);
   const currentText = doc.getText();
 
-  const res = addComponentToAsc(currentText, type, value, near);
+  const res = addComponentToAsc(currentText, type, value, near, orientation);
 
   const edit = new vscode.WorkspaceEdit();
   const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(currentText.length));
@@ -1044,7 +1045,14 @@ export async function checkSpec(
     });
 
     const targetSig = spec.signal || 'V(out)';
-    const foundSeries = raw.series[targetSig];
+    let foundSeries = raw.series[targetSig];
+    if (!foundSeries) {
+      const matchKey = Object.keys(raw.series).find(
+        (k) => k.toLowerCase() === targetSig.toLowerCase() ||
+               k.toLowerCase() === 'v(' + targetSig.toLowerCase() + ')'
+      );
+      if (matchKey) foundSeries = raw.series[matchKey];
+    }
     if (foundSeries) {
       rawWaveform = {
         x: Array.from(raw.x),

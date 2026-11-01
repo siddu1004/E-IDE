@@ -79,8 +79,20 @@ export const COMPONENT_CATALOG: Record<string, CatalogEntry> = {
     ltspiceSymbol: 'diode',
     kicadSymbol: 'Device:D',
     pins: [
-      { name: '1', aliases: ['1', 'A', 'anode'], dx: 0, dy: 0 },
-      { name: '2', aliases: ['2', 'K', 'cathode'], dx: 0, dy: 64 },
+      { name: '1', aliases: ['1', 'A', 'anode', '+'], dx: 16, dy: 0 },
+      { name: '2', aliases: ['2', 'K', 'cathode', '-'], dx: 16, dy: 64 },
+    ],
+  },
+  SW: {
+    type: 'SW',
+    refPrefix: 'S',
+    ltspiceSymbol: 'sw',
+    kicadSymbol: 'Switch:SW_SPST',
+    pins: [
+      { name: 'in', aliases: ['in', '1', 'A', 'p1'], dx: 0, dy: 16 },
+      { name: 'out', aliases: ['out', '2', 'B', 'p2'], dx: 0, dy: 96 },
+      { name: 'ctrl+', aliases: ['ctrl+', '+', 'gate', 'pos', '3', 'nc+'], dx: -48, dy: 80 },
+      { name: 'ctrl-', aliases: ['ctrl-', '-', 'ref', 'neg', '4', 'nc-'], dx: -48, dy: 32 },
     ],
   },
   NPN: {
@@ -162,6 +174,7 @@ export function normalizeComponentType(type: string): CatalogEntry {
   if (upper.startsWith('VOLT') || upper === 'VSRC' || upper === 'VDC') return COMPONENT_CATALOG['V'];
   if (upper.startsWith('CURR') || upper === 'ISRC') return COMPONENT_CATALOG['I'];
   if (upper.startsWith('DIODE')) return COMPONENT_CATALOG['D'];
+  if (upper.startsWith('SW') || upper === 'SWITCH') return COMPONENT_CATALOG['SW'];
   if (upper.includes('OPAMP') || upper === 'AMP') return COMPONENT_CATALOG['opamp'];
   if (upper.includes('GND') || upper === 'GROUND') return COMPONENT_CATALOG['GND'];
 
