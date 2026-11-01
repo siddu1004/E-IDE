@@ -1,8 +1,8 @@
-import { describe, it } from 'node:test';
+import { describe, it, test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseSlx, diffSlxModels, readZipEntries, parseSystemXml, portPosition } from '../src/simulink/slxParser';
+import { parseSlx, diffSlxModels, readZipEntries, parseSystemXml, portPosition, parseBinding, parseGaugeBounds } from '../src/simulink/slxParser';
 
 describe('slxParser with real R2026a Simulink fixture', () => {
   const fixturePath = path.resolve(__dirname, '..', '..', 'test', 'fixtures', 'simulink', 'rc_circuit.slx');
@@ -137,4 +137,20 @@ describe('slxParser line routing, annotations, and ports', () => {
     assert.deepEqual(portPosition(c, 'in', 1), { x: 110, y: 140 });
     assert.deepEqual(portPosition(c, 'out', 1), { x: 110, y: 160 });
   });
+});
+
+test('parseBinding reads the bound block, SID and signal from a BindingPersistence object', () => {
+  const buf = Buffer.concat([
+    Buffer.from('MCOS\0\0SignalName_\0\x01\x02'),
+    Buffer.from('16d1f318-b2b4-42e0-ba20-56dc3af52ce0\0Stage4_Output_Conditioning\0' + '95\0P_pv (W)\0BlockPath_\0'),
+  ]);
+  assert.deepEqual(parseBinding(buf), { source: 'Stage4_Output_Conditioning', sid: '95', signal: 'P_pv (W)' });
+  assert.equal(parseBinding(Buffer.from('no digits here')), undefined);
+});
+
+test('parseGaugeBounds reads scale limits in any key order', () => {
+  assert.deepEqual(parseGaugeBounds('{"components":[{"settings":{"bounds":{"max":15,"min":0,"tickInterval":"auto"}}}]}'), { min: 0, max: 15 });
+  assert.deepEqual(parseGaugeBounds('{"bounds":{"min":-2.5,"max":1e3}}'), { min: -2.5, max: 1000 });
+  assert.equal(parseGaugeBounds('{"bounds":{"min":5,"max":5}}'), undefined);
+  assert.equal(parseGaugeBounds(undefined), undefined);
 });

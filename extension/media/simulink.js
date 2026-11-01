@@ -76,6 +76,11 @@
   let selectedBlock = null;
   let currentSystemName = 'root';
   const systemStack = [];
+  // Last simulation run, replayed on dashboard gauges: { x: number[], series: { name: number[] } }.
+  let liveRun = null;
+  let liveIndex = -1;
+  let liveFrame = 0;
+  const liveGauges = new Map();
   let bridgeStatus = 'off';
 
   // Waveform Viewer instance
@@ -343,6 +348,10 @@
         if (waveformViewer && msg.current) {
           waveformViewer.loadData(msg.current, msg.previous);
         }
+        if (msg.current && msg.current.x && msg.current.x.length) {
+          liveRun = msg.current;
+          replayGauges();
+        }
         break;
 
       case 'error':
@@ -460,7 +469,10 @@
         const r = Math.min(w, h) / 2;
         g.appendChild(el('circle', { cx, cy, r, class: 'block-shape dashboard' }));
         g.appendChild(el('path', { d: `M ${cx - r * 0.7} ${cy + r * 0.3} A ${r * 0.75} ${r * 0.75} 0 1 1 ${cx + r * 0.7} ${cy + r * 0.3}`, class: 'gauge-arc' }));
-        g.appendChild(el('line', { x1: cx, y1: cy, x2: cx + r * 0.45, y2: cy - r * 0.45, class: 'gauge-needle' }));
+        const live = el('g', { class: 'gauge-live' });
+        g.appendChild(live);
+        liveGauges.set(block.sid, { node: live, block });
+        paintGauge(live, block);
         return;
       }
       case 'SliderBlock':
@@ -483,6 +495,53 @@
     } else {
       text(GLYPHS[block.type] || shortValue(block.type, Math.max(4, Math.floor(w / 6))));
     }
+  }
+
+  // The bound signal's value at the replay position, matched by signal name, then by source block name.
+  function liveValue(block) {
+    if (!liveRun || !block.binding || liveIndex < 0) return undefined;
+    const { signal, source } = block.binding;
+    const key = [signal, source].find((k) => k && liveRun.series[k]);
+    const values = key && liveRun.series[key];
+    if (!values || !values.length) return undefined;
+    return values[Math.min(liveIndex, values.length - 1)];
+  }
+
+  function formatValue(v) {
+    const a = Math.abs(v);
+    return a !== 0 && (a >= 1e4 || a < 1e-2) ? v.toExponential(2) : String(Number(v.toPrecision(3)));
+  }
+
+  // Needle and readout. The arc runs clockwise from 203° to -23°, mapped onto the gauge's min..max.
+  function paintGauge(node, block) {
+    node.textContent = '';
+    const { left, top, right, bottom } = block.position;
+    const cx = (left + right) / 2;
+    const cy = (top + bottom) / 2;
+    const r = Math.min(right - left, bottom - top) / 2;
+    const v = liveValue(block);
+    const { min, max } = block.gauge || { min: 0, max: 100 };
+    const frac = v === undefined ? 0.75 : Math.max(0, Math.min(1, (v - min) / (max - min)));
+    const angle = ((203.2 - 226.4 * frac) * Math.PI) / 180;
+    node.appendChild(el('line', { x1: cx, y1: cy, x2: cx + r * 0.6 * Math.cos(angle), y2: cy - r * 0.6 * Math.sin(angle), class: 'gauge-needle' }));
+    if (v !== undefined) {
+      node.appendChild(el('text', { x: cx, y: cy + r * 0.55, class: 'gauge-value', 'font-size': Math.max(6, r * 0.32) }, formatValue(v)));
+    }
+  }
+
+  // Replays the run on every gauge over about two seconds, ending on the final value.
+  function replayGauges() {
+    cancelAnimationFrame(liveFrame);
+    const n = liveRun ? liveRun.x.length : 0;
+    if (!n) return;
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 2000);
+      liveIndex = Math.round(t * (n - 1));
+      liveGauges.forEach(({ node, block }) => paintGauge(node, block));
+      if (t < 1) liveFrame = requestAnimationFrame(step);
+    };
+    liveFrame = requestAnimationFrame(step);
   }
 
   function drawPorts(g, block) {
@@ -525,6 +584,7 @@
     if (!system) return;
 
     viewportGroup.innerHTML = '';
+    liveGauges.clear();
     const blockMap = new Map();
     for (const b of system.blocks) blockMap.set(b.sid, b);
 
@@ -588,7 +648,9 @@
         const { left, right, bottom } = block.position;
         bGroup.appendChild(el('text', { x: (left + right) / 2, y: bottom + 10, class: 'block-name' }, block.name));
       }
-      bGroup.appendChild(el('title', {}, `${block.name} (${block.sourceBlock || block.type})`));
+      const bound = block.binding ? `
+Shows: ${block.binding.signal} (from ${block.binding.source})` : '';
+      bGroup.appendChild(el('title', {}, `${block.name} (${block.sourceBlock || block.type})${bound}`));
 
       bGroup.addEventListener('click', (e) => {
         e.stopPropagation();

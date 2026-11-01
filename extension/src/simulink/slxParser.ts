@@ -14,6 +14,15 @@ export interface SlxBlock {
   mirror?: boolean;
   ports?: SlxPortCounts;
   sourceBlock?: string;
+  binding?: SlxBinding;
+  gauge?: { min: number; max: number };
+}
+
+/** What a dashboard block (gauge, slider, knob) is connected to in the model. */
+export interface SlxBinding {
+  source: string;
+  sid: string;
+  signal: string;
 }
 
 export interface SlxPortCounts {
@@ -357,6 +366,27 @@ export function portPosition(block: SlxBlock, portType: string, portNumber: numb
   }
 }
 
+/**
+ * Reads a BindingPersistence object without a MAT-file decoder. Its printable strings hold
+ * the bound block's name, then its SID (the only all-digit string), then the signal or label.
+ */
+export function parseBinding(buf: Buffer): SlxBinding | undefined {
+  const strings = buf.toString('latin1').match(/[ -~]{2,}/g) ?? [];
+  const i = strings.findIndex((t) => /^\d+$/.test(t));
+  if (i < 1 || i + 1 >= strings.length) return undefined;
+  return { source: strings[i - 1], sid: strings[i], signal: strings[i + 1] };
+}
+
+/** Scale limits from a dashboard block's Configuration JSON. */
+export function parseGaugeBounds(config: string | undefined): { min: number; max: number } | undefined {
+  const bounds = config?.match(/"bounds"\s*:\s*\{([^}]*)\}/);
+  if (!bounds) return undefined;
+  const num = (k: string) => Number(bounds[1].match(new RegExp(`"${k}"\\s*:\\s*(-?[\\d.eE+-]+)`))?.[1]);
+  const min = num('min');
+  const max = num('max');
+  return Number.isFinite(min) && Number.isFinite(max) && max > min ? { min, max } : undefined;
+}
+
 function decodeXml(s: string): string {
   return s
     .replace(/&quot;/g, '"')
@@ -411,6 +441,17 @@ export function parseSlx(buf: Buffer, modelName = 'model'): SlxModel {
   const subsystems: Record<string, SlxSystem> = {};
   for (const [subName, xml] of Object.entries(subXml)) {
     subsystems[subName] = parseSystemXml(xml, subName, portHints);
+  }
+
+  // Dashboard blocks keep their signal or variable binding in a MATLAB object file named after the block SID.
+  for (const system of [rootSystem, ...Object.values(subsystems)]) {
+    for (const block of system.blocks) {
+      const mx = entries[`simulink/bdmxdata/BindingPersistence_${block.sid}.mxarray`];
+      const binding = mx ? parseBinding(mx) : undefined;
+      if (binding) block.binding = binding;
+      const gauge = parseGaugeBounds(block.parameters.Configuration);
+      if (gauge) block.gauge = gauge;
+    }
   }
 
   return {

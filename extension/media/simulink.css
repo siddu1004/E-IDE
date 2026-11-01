@@ -318,3 +318,11 @@ aside {
 .slx-annotation.bold { font-weight: 700; }
 .slx-breadcrumb { margin-bottom: 8px; font-size: 11px; color: var(--vscode-descriptionForeground); }
 .slx-breadcrumb a { color: var(--vscode-textLink-foreground); }
+
+.gauge-value {
+  fill: var(--vscode-foreground);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-family: var(--vscode-editor-font-family);
+  font-weight: 600;
+}
