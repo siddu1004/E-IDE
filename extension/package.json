@@ -91,8 +91,66 @@
       {
         "command": "eide.undoAgentChange",
         "title": "E-IDE: Undo Agent Change"
+      },
+      {
+        "command": "eide.arduino.verify",
+        "title": "E-IDE: Arduino Verify",
+        "icon": "$(check)"
+      },
+      {
+        "command": "eide.arduino.upload",
+        "title": "E-IDE: Arduino Upload",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "eide.arduino.selectBoard",
+        "title": "E-IDE: Arduino Select Board",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "eide.arduino.selectPort",
+        "title": "E-IDE: Arduino Select Port",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "eide.arduino.openSerial",
+        "title": "E-IDE: Open Arduino Serial Monitor & Plotter",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "eide.arduino.installCli",
+        "title": "E-IDE: Install arduino-cli"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "eide.arduino.verify",
+          "when": "resourceExtname == .ino",
+          "group": "navigation@1"
+        },
+        {
+          "command": "eide.arduino.upload",
+          "when": "resourceExtname == .ino",
+          "group": "navigation@2"
+        },
+        {
+          "command": "eide.arduino.selectBoard",
+          "when": "resourceExtname == .ino",
+          "group": "navigation@3"
+        },
+        {
+          "command": "eide.arduino.selectPort",
+          "when": "resourceExtname == .ino",
+          "group": "navigation@4"
+        },
+        {
+          "command": "eide.arduino.openSerial",
+          "when": "resourceExtname == .ino",
+          "group": "navigation@5"
+        }
+      ]
+    },
     "configuration": {
       "title": "E-IDE",
       "properties": {
@@ -140,6 +198,21 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically re-run simulation when the Simulink model changes."
+        },
+        "eide.arduino.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the arduino-cli executable. If empty, default installation paths are searched."
+        },
+        "eide.arduino.selectedBoard": {
+          "type": "string",
+          "default": "arduino:avr:uno",
+          "description": "Currently selected Arduino board FQBN."
+        },
+        "eide.arduino.selectedPort": {
+          "type": "string",
+          "default": "",
+          "description": "Currently selected serial port for Arduino upload and serial monitor."
         }
       }
     }

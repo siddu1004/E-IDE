@@ -509,6 +509,61 @@ export class EidMcpServer {
       }
     );
 
+    // 27. Arduino: listBoards
+    mcp.tool(
+      'listBoards',
+      'List connected serial ports/boards and installed board platforms via arduino-cli.',
+      {},
+      async () => {
+        const res = await tools.listBoards();
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 28. Arduino: compileSketch
+    mcp.tool(
+      'compileSketch',
+      'Verify and compile an Arduino .ino sketch for a specified target board FQBN.',
+      {
+        path: z.string().describe('Relative path to the .ino sketch file inside workspace'),
+        fqbn: z.string().describe('Target board Fully Qualified Board Name (e.g. "arduino:avr:uno")'),
+      },
+      async ({ path: sketchPath, fqbn }) => {
+        const res = await tools.compileSketch(sketchPath, fqbn);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 29. Arduino: uploadSketch
+    mcp.tool(
+      'uploadSketch',
+      'Upload compiled sketch firmware to connected hardware. Requires user confirmation prompt.',
+      {
+        path: z.string().describe('Relative path to the .ino sketch file inside workspace'),
+        fqbn: z.string().describe('Target board FQBN (e.g. "arduino:avr:uno")'),
+        port: z.string().describe('Target serial port (e.g. "COM3" or "/dev/ttyACM0")'),
+      },
+      async ({ path: sketchPath, fqbn, port }) => {
+        const res = await tools.uploadSketch(sketchPath, fqbn, port);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
+    // 30. Arduino: readSerial
+    mcp.tool(
+      'readSerial',
+      'Read streaming serial data from device for a short duration and return a compact statistical summary.',
+      {
+        port: z.string().describe('Serial port address (e.g. "COM3")'),
+        baud: z.number().optional().default(115200).describe('Baud rate (default 115200)'),
+        seconds: z.number().optional().default(2).describe('Capture duration in seconds (default 2)'),
+      },
+      async ({ port, baud, seconds }) => {
+        const res = await tools.readSerial(port, baud, seconds);
+        return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+      }
+    );
+
     // Register with vscode.lm if available
     this.registerLmTools();
   }

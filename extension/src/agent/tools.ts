@@ -31,6 +31,21 @@ import {
 import { DesignSpec, evaluateSpec, SpecCheckResult } from './specChecker';
 import { runTuner, TuneParamConfig, TuneResult } from './tuner';
 import { validateSimulinkLibraryPath } from '../matlab/matlabBridge';
+import { findArduinoCli } from '../arduino/arduinoFinder';
+import {
+  BoardInfo,
+  ConnectedBoardPort,
+  CompileResult,
+  UploadResult,
+  listBoards as runnerListBoards,
+  compileSketch as runnerCompileSketch,
+  uploadSketch as runnerUploadSketch,
+} from '../arduino/arduinoRunner';
+import {
+  CompactSerialSummary,
+  readSerialSummary,
+  SerialPortCoordinator,
+} from '../arduino/serialMonitor';
 
 // Active editor listeners map to post simulation results directly into open webviews
 export const activeSimulationWebviews = new Map<string, vscode.Webview>();
@@ -1136,3 +1151,129 @@ export async function tune(
   historyMgr.commitActiveTurn(resolved);
   return res;
 }
+
+// -------------------------------------------------------------
+// Arduino Agent Tools
+// -------------------------------------------------------------
+
+export interface AgentListBoardsResult {
+  connectedPorts: ConnectedBoardPort[];
+  installedBoards: BoardInfo[];
+}
+
+/**
+ * Lists connected boards and serial ports as well as installed board platforms.
+ */
+export async function listBoards(): Promise<AgentListBoardsResult> {
+  const config = vscode.workspace.getConfiguration('eide.arduino');
+  const customPath = config.get<string>('cliPath');
+  const cliPath = findArduinoCli(customPath);
+  if (!cliPath) {
+    throw new Error('arduino-cli is not installed or not found on PATH. Configure eide.arduino.cliPath.');
+  }
+
+  const { detected, allBoards } = await runnerListBoards(cliPath);
+  return { connectedPorts: detected, installedBoards: allBoards };
+}
+
+/**
+ * Compiles an Arduino sketch for a specific FQBN (e.g. "arduino:avr:uno").
+ */
+export async function compileSketch(sketchPath: string, fqbn: string): Promise<CompileResult> {
+  const resolved = assertPathInWorkspace(sketchPath);
+  const config = vscode.workspace.getConfiguration('eide.arduino');
+  const customPath = config.get<string>('cliPath');
+  const cliPath = findArduinoCli(customPath);
+  if (!cliPath) {
+    throw new Error('arduino-cli is not installed or not found on PATH. Configure eide.arduino.cliPath.');
+  }
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  historyMgr.postAgentBanner(resolved, `Agent: Compiling sketch for ${fqbn}...`);
+
+  const controller = new AbortController();
+  const res = await runnerCompileSketch(cliPath, resolved, fqbn, {
+    signal: controller.signal,
+  });
+
+  if (res.success) {
+    historyMgr.postAgentBanner(resolved, `Agent: Compilation succeeded (${res.durationMs}ms)`);
+  } else {
+    historyMgr.postAgentBanner(resolved, `Agent: Compilation failed - ${res.error || 'check errors'}`);
+  }
+
+  return res;
+}
+
+/**
+ * Uploads an Arduino sketch to target board and serial port.
+ * Always prompts user confirmation before flashing real hardware, regardless of requireApproval.
+ */
+export async function uploadSketch(sketchPath: string, fqbn: string, port: string): Promise<UploadResult> {
+  const resolved = assertPathInWorkspace(sketchPath);
+  const config = vscode.workspace.getConfiguration('eide.arduino');
+  const customPath = config.get<string>('cliPath');
+  const cliPath = findArduinoCli(customPath);
+  if (!cliPath) {
+    throw new Error('arduino-cli is not installed or not found on PATH. Configure eide.arduino.cliPath.');
+  }
+
+  // Uploading changes physical hardware: always require explicit user confirmation
+  const choice = await vscode.window.showWarningMessage(
+    `Confirm upload to hardware port ${port} (${fqbn}) for sketch ${path.basename(resolved)}?`,
+    { modal: true },
+    'Upload',
+    'Cancel'
+  );
+  if (choice !== 'Upload') {
+    throw new Error(`Upload to ${port} rejected by user`);
+  }
+
+  const historyMgr = AgentHistoryManager.getInstance();
+  historyMgr.postAgentBanner(resolved, `Agent: Uploading sketch to ${port} (${fqbn})...`);
+
+  // First compile sketch
+  const comp = await runnerCompileSketch(cliPath, resolved, fqbn);
+  if (!comp.success) {
+    historyMgr.postAgentBanner(resolved, `Agent: Upload aborted, compilation failed`);
+    throw new Error(`Compilation failed prior to upload: ${comp.error}`);
+  }
+
+  // Release serial port if open in monitor, upload, and automatically reconnect
+  const controller = new AbortController();
+  const res = await SerialPortCoordinator.getInstance().withPortReleased(port, async () => {
+    return await runnerUploadSketch(cliPath, resolved, fqbn, port, {
+      signal: controller.signal,
+    });
+  });
+
+  if (res.success) {
+    historyMgr.postAgentBanner(resolved, `Agent: Upload successful to ${port}! (${res.durationMs}ms)`);
+  } else {
+    historyMgr.postAgentBanner(resolved, `Agent: Upload failed: ${res.error}`);
+  }
+
+  return res;
+}
+
+/**
+ * Reads streaming data from serial port for given duration and returns a compact summary.
+ */
+export async function readSerial(
+  port: string,
+  baud: number = 115200,
+  seconds: number = 2
+): Promise<CompactSerialSummary> {
+  const config = vscode.workspace.getConfiguration('eide.arduino');
+  const customPath = config.get<string>('cliPath');
+  const cliPath = findArduinoCli(customPath);
+  if (!cliPath) {
+    throw new Error('arduino-cli is not installed or not found on PATH. Configure eide.arduino.cliPath.');
+  }
+
+  const controller = new AbortController();
+  return await readSerialSummary(cliPath, port, baud, seconds, {
+    signal: controller.signal,
+  });
+}
+

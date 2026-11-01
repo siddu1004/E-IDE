@@ -10,6 +10,7 @@ import { MatlabBridge, BridgeStatus } from './matlab/matlabBridge';
 import { findMatlab } from './matlab/matlabFinder';
 import { MatlabScriptRunner } from './matlab/matlabScriptRunner';
 import { SlxEditorProvider } from './simulink/slxEditorProvider';
+import { ArduinoController } from './arduino/arduinoController';
 
 let activeMatlabBridge: MatlabBridge | undefined;
 let activeMcpServer: EidMcpServer | undefined;
@@ -35,7 +36,11 @@ export function activate(context: vscode.ExtensionContext) {
   const slxProvider = new SlxEditorProvider(context, bridge);
   const scriptRunner = new MatlabScriptRunner(context, bridge);
 
-  // 3. MCP Server inside extension
+  // 3. Arduino Support
+  const arduinoController = new ArduinoController(context);
+  context.subscriptions.push(arduinoController);
+
+  // 4. MCP Server inside extension
   const mcpServer = new EidMcpServer(context);
   activeMcpServer = mcpServer;
   // Point Antigravity at this session's port and token so the agent finds E-IDE without copy-paste.

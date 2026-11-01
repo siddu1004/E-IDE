@@ -1,0 +1,262 @@
+/* Styles for E-IDE Arduino Serial Monitor & Live Plotter */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header toolbar */
+.arduino-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background-color: var(--vscode-editorGroupHeader-tabsBackground, #252526);
+  border-bottom: 1px solid var(--vscode-panel-border, #333);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.arduino-toolbar label {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.arduino-toolbar select,
+.arduino-toolbar input[type="text"] {
+  background: var(--vscode-dropdown-background, #3c3c3c);
+  color: var(--vscode-dropdown-foreground, #f0f0f0);
+  border: 1px solid var(--vscode-dropdown-border, #555);
+  border-radius: 2px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.arduino-toolbar select:focus,
+.arduino-toolbar input[type="text"]:focus {
+  outline: 1px solid var(--vscode-focusBorder, #007acc);
+}
+
+.arduino-toolbar button,
+.serial-input-row button {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
+  border: none;
+  border-radius: 2px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arduino-toolbar button:hover,
+.serial-input-row button:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.arduino-toolbar button.secondary {
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #ffffff);
+}
+
+.arduino-toolbar button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.status-pill.connected {
+  background: rgba(46, 160, 67, 0.2);
+  color: var(--vscode-charts-green, #2ea043);
+}
+
+.status-pill.disconnected {
+  background: rgba(140, 140, 140, 0.2);
+  color: var(--vscode-descriptionForeground, #888);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+/* View tabs */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--vscode-editor-inactiveSelectionBackground, #3a3d41);
+  border-radius: 3px;
+  padding: 2px;
+}
+
+.view-toggle button {
+  background: transparent;
+  color: var(--vscode-foreground, #ccc);
+  border-radius: 2px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.view-toggle button.active {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+/* Main Split View */
+.arduino-main-view {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.arduino-main-view.layout-split {
+  flex-direction: column;
+}
+
+.arduino-main-view.layout-split .monitor-panel {
+  flex: 1;
+  border-bottom: 1px solid var(--vscode-panel-border, #333);
+}
+
+.arduino-main-view.layout-split .plotter-panel {
+  flex: 1;
+}
+
+.arduino-main-view.layout-monitor .monitor-panel {
+  flex: 1;
+}
+.arduino-main-view.layout-monitor .plotter-panel {
+  display: none;
+}
+
+.arduino-main-view.layout-plotter .monitor-panel {
+  display: none;
+}
+.arduino-main-view.layout-plotter .plotter-panel {
+  flex: 1;
+}
+
+/* Monitor Panel */
+.monitor-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 120px;
+  overflow: hidden;
+}
+
+.monitor-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.monitor-log .log-line {
+  display: flex;
+  gap: 8px;
+}
+
+.monitor-log .timestamp {
+  color: var(--vscode-descriptionForeground, #777);
+  user-select: none;
+  font-size: 11px;
+}
+
+.monitor-log .content {
+  flex: 1;
+}
+
+/* Serial Input Row */
+.serial-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--vscode-panel-border, #333);
+  background-color: var(--vscode-editor-background);
+  flex-shrink: 0;
+}
+
+.serial-input-row input[type="text"] {
+  flex: 1;
+  background: var(--vscode-input-background, #2d2d2d);
+  color: var(--vscode-input-foreground, #fff);
+  border: 1px solid var(--vscode-input-border, #444);
+  border-radius: 2px;
+  padding: 4px 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+.serial-input-row select {
+  background: var(--vscode-dropdown-background, #3c3c3c);
+  color: var(--vscode-dropdown-foreground, #fff);
+  border: 1px solid var(--vscode-dropdown-border, #555);
+  border-radius: 2px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+/* Plotter Panel */
+.plotter-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 160px;
+  overflow: hidden;
+  position: relative;
+}
+
+.waveform-canvas-box {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100px;
+}
+
+#waveform-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#waveform-empty-msg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--vscode-descriptionForeground, #888);
+  font-style: italic;
+  font-size: 13px;
+  pointer-events: none;
+}
