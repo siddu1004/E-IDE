@@ -378,12 +378,9 @@ function resp = executeAddBlock(args)
     modelName = ensureModelLoaded(args.path);
     destBlock = [modelName '/' args.name];
 
-    try
-        existing = get_param(destBlock, 'Handle');
-        if ishandle(existing) && existing > 0
-            delete_block(destBlock);
-        end
-    catch
+    % Refuse rather than replace: deleting the old block would silently drop its wires.
+    if getSimulinkBlockHandle(destBlock) > 0
+        error('EIDE:BlockExists', 'A block named "%s" already exists; remove it first or pick another name.', args.name);
     end
 
     add_block(args.libraryPath, destBlock);
