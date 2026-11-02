@@ -80,8 +80,41 @@
   stage.addEventListener('keydown', (e) => sendKey(e, true));
   stage.addEventListener('keyup', (e) => sendKey(e, false));
   // A key still held when focus leaves would stay pressed in the app.
-  stage.addEventListener('blur', () => vscode.postMessage({ type: 'release' }));
-  window.addEventListener('blur', () => vscode.postMessage({ type: 'release' }));
+  stage.addEventListener('focus', () => {
+    document.body.classList.add('keyboard-active');
+  });
+  stage.addEventListener('blur', () => {
+    document.body.classList.remove('keyboard-active');
+    vscode.postMessage({ type: 'release' });
+  });
+  window.addEventListener('blur', () => {
+    document.body.classList.remove('keyboard-active');
+    vscode.postMessage({ type: 'release' });
+  });
+
+  const windowSelect = document.getElementById('window-select');
+  const actionButtons = document.querySelectorAll('.action-btn');
+
+  actionButtons.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const action = btn.dataset.action;
+      if (action) {
+        stage.focus();
+        vscode.postMessage({ type: 'action', action });
+      }
+    });
+  });
+
+  if (windowSelect) {
+    windowSelect.addEventListener('change', () => {
+      const hwnd = parseInt(windowSelect.value, 10);
+      if (hwnd) {
+        stage.focus();
+        vscode.postMessage({ type: 'focusWindow', hwnd });
+      }
+    });
+  }
 
   if (reloadBtn) {
     reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reload' }));
@@ -141,6 +174,25 @@
         break;
       case 'error':
         statusEl.textContent = 'Error: ' + msg.message;
+        break;
+      case 'windows':
+        if (windowSelect && Array.isArray(msg.list)) {
+          windowSelect.innerHTML = '';
+          const defaultOpt = document.createElement('option');
+          defaultOpt.value = '';
+          defaultOpt.textContent = `Windows (${msg.list.length})`;
+          windowSelect.appendChild(defaultOpt);
+          for (const win of msg.list) {
+            const opt = document.createElement('option');
+            opt.value = win.hwnd;
+            opt.textContent = win.title ? (win.title.length > 40 ? win.title.slice(0, 37) + '...' : win.title) : `HWND ${win.hwnd}`;
+            if (msg.activeHwnd && win.hwnd === msg.activeHwnd) {
+              opt.selected = true;
+            }
+            windowSelect.appendChild(opt);
+          }
+          windowSelect.style.display = msg.list.length > 1 ? 'inline-block' : 'none';
+        }
         break;
     }
   });

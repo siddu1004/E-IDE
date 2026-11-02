@@ -21,7 +21,7 @@ import {
   matlabString,
   windowsShowingFile,
 } from './mirrorApps';
-import { formatMirrorHeaderStatus } from './mirrorStatus';
+import { formatMirrorHeaderStatus, getAppQuickActions } from './mirrorStatus';
 
 export interface MirrorFrame {
   width: number;
@@ -151,6 +151,11 @@ const KEY_NAME_TO_VK: Record<string, number> = {
   space: 32,
   backspace: 8,
   delete: 46,
+  insert: 45,
+  home: 36,
+  end: 35,
+  pageup: 33,
+  pagedown: 34,
   up: 38,
   down: 40,
   left: 37,
@@ -363,6 +368,20 @@ export class AppMirrorController implements vscode.Disposable {
     entry.panel = panel;
     panel.webview.html = this.html(panel.webview, entry.app);
 
+    const pushWindows = async () => {
+      try {
+        const list = await entry.session.listWindows();
+        const appWins = list.filter((w) => !entry.pids?.length || entry.pids.includes(w.pid));
+        panel.webview.postMessage({
+          type: 'windows',
+          list: appWins.map((w) => ({ hwnd: w.hwnd, title: w.title, pid: w.pid })),
+          activeHwnd: appWins[0]?.hwnd,
+        });
+      } catch {}
+    };
+
+    const windowPollInterval = setInterval(pushWindows, 3500);
+
     const sub = entry.session.onMessage((msg) => {
       if (msg.type === 'frame' || msg.type === 'gone' || msg.type === 'error' || msg.type === 'status') {
         panel.webview.postMessage(msg);
@@ -384,6 +403,21 @@ export class AppMirrorController implements vscode.Disposable {
           break;
         case 'ready':
           entry.session.send('snap');
+          pushWindows();
+          break;
+        case 'action':
+          this.handleQuickAction(entry, msg.action).catch((e) =>
+            vscode.window.showErrorMessage(`Action failed: ${e.message}`)
+          );
+          break;
+        case 'focusWindow':
+          if (msg.hwnd) {
+            entry.session.send(`focus ${msg.hwnd}`);
+            setTimeout(() => {
+              entry.session.send('snap');
+              pushWindows();
+            }, 300);
+          }
           break;
         case 'reload':
           this.reload(entry.app.id, entry.filePath).catch((e) => vscode.window.showErrorMessage(`Reload failed: ${e.message}`));
@@ -397,6 +431,7 @@ export class AppMirrorController implements vscode.Disposable {
       }
     });
     panel.onDidDispose(() => {
+      clearInterval(windowPollInterval);
       sub.dispose();
       entry.session.dispose();
       this.open.delete(entry.app.id);
@@ -445,6 +480,73 @@ export class AppMirrorController implements vscode.Disposable {
     }
     await new Promise((r) => setTimeout(r, 700));
     return session.snapshot();
+  }
+
+  async hotkey(appId: string, keys: string): Promise<MirrorFrame> {
+    const { session } = await this.ensure(appId);
+    this.sendKeyCombo(session, keys);
+    await new Promise((r) => setTimeout(r, 700));
+    return session.snapshot();
+  }
+
+  private async handleQuickAction(entry: OpenMirror, action: string): Promise<void> {
+    const s = entry.session;
+    switch (action) {
+      case 'save':
+        this.sendKeyCombo(s, 'ctrl+s');
+        break;
+      case 'matlab_run':
+        this.sendKeyCombo(s, 'f5');
+        break;
+      case 'matlab_sim':
+        this.sendKeyCombo(s, 'ctrl+t');
+        break;
+      case 'matlab_cw':
+        this.sendKeyCombo(s, 'ctrl+0');
+        break;
+      case 'matlab_clc':
+        await this.runInMatlab(entry, 'clc');
+        break;
+      case 'ltspice_run':
+        this.sendKeyCombo(s, 'f7');
+        break;
+      case 'ltspice_fit':
+        this.sendKeyCombo(s, 'ctrl+b');
+        break;
+      case 'ltspice_comp':
+        this.sendKeyCombo(s, 'f2');
+        break;
+      case 'ltspice_wire':
+        this.sendKeyCombo(s, 'f3');
+        break;
+      case 'kicad_sym':
+        this.sendKeyCombo(s, 'a');
+        break;
+      case 'kicad_wire':
+        this.sendKeyCombo(s, 'w');
+        break;
+      case 'kicad_pcb':
+        this.sendKeyCombo(s, 'f8');
+        break;
+      case 'kicad_fit':
+        this.sendKeyCombo(s, 'home');
+        break;
+      case 'arduino_verify':
+        this.sendKeyCombo(s, 'ctrl+r');
+        break;
+      case 'arduino_upload':
+        this.sendKeyCombo(s, 'ctrl+u');
+        break;
+      case 'arduino_serial':
+        this.sendKeyCombo(s, 'ctrl+shift+m');
+        break;
+      default:
+        if (action.startsWith('key:')) {
+          this.sendKeyCombo(s, action.slice(4));
+        }
+        break;
+    }
+    setTimeout(() => s.send('snap'), 500);
   }
 
   private sendKeyCombo(session: MirrorSession, combo: string): void {
@@ -525,6 +627,18 @@ export class AppMirrorController implements vscode.Disposable {
     }
   }
 
+  private appToolbarHtml(app: MirrorApp): string {
+    const actions = getAppQuickActions(app.id);
+    if (!actions.length) return '';
+    const buttons = actions
+      .map(
+        (a) =>
+          `<button type="button" class="action-btn${a.primary ? ' primary' : ''}" data-action="${a.id}" title="${a.label}">${a.label}</button>`
+      )
+      .join('');
+    return `<div class="toolbar" role="toolbar" aria-label="${app.label} Quick Actions">${buttons}</div>`;
+  }
+
   private html(webview: vscode.Webview, app: MirrorApp): string {
     const nonce = crypto.randomBytes(16).toString('base64');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'appMirror.js'));
@@ -544,11 +658,14 @@ export class AppMirrorController implements vscode.Disposable {
     <span class="app-icon" aria-hidden="true">${this.appIconSvg(app)}</span>
     <span class="app-name">${app.label}</span>
     <span id="window-title" class="window-title"></span>
+    <select id="window-select" class="window-select" style="display:none;" title="Switch active window"></select>
+    <span id="focus-badge" class="focus-badge">⌨ Keys Active</span>
     <span id="status" class="status">${initialStatus}</span>
     <button type="button" id="reload-btn" class="header-btn" title="Reload file or refresh in ${app.label}">↻ Reload</button>
     <button type="button" id="popout-btn" class="header-btn" title="Restore and bring ${app.label} to the foreground">↗ Pop out to real window</button>
     <label class="toggle"><input type="checkbox" id="fit-toggle"> Fit window to tab</label>
   </header>
+  ${this.appToolbarHtml(app)}
   <main id="stage" tabindex="0"><img id="screen" alt="${app.label} window" draggable="false"></main>
   <script nonce="${nonce}" src="${script}"></script>
 </body>

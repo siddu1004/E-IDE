@@ -644,6 +644,33 @@ export class EidMcpServer {
       }
     );
 
+    mcp.tool(
+      'hotkeyDesktopApp',
+      'Send a key shortcut or hotkey combo (e.g. "Ctrl+S", "F5", "Ctrl+T", "Escape", "Home") to an open desktop app. Returns the picture afterwards.',
+      {
+        app: z.enum(appIds).describe('Which app'),
+        key: z.string().describe('Key combo (e.g. Ctrl+S, F5, Ctrl+T, Home, Escape)'),
+      },
+      async ({ app, key }) => {
+        await tools.checkAgentApproval(app, `hotkey ${key}`);
+        return frameContent(await mirror().hotkey(app, key), `After hotkey ${key}.`);
+      }
+    );
+
+    mcp.tool(
+      'focusDesktopAppWindow',
+      'Focus a specific child or desktop window of the app by title or HWND. Returns the picture of the window brought forward.',
+      {
+        app: z.enum(appIds).describe('Which app'),
+        windowTitleOrHwnd: z.union([z.string(), z.number()]).describe('Title substring or HWND number of the window to focus'),
+      },
+      async ({ app, windowTitleOrHwnd }) => {
+        const frame = await mirror().focusWindow(app, windowTitleOrHwnd);
+        if (!frame) throw new Error(`Window matching '${windowTitleOrHwnd}' not found.`);
+        return frameContent(frame, `Focused window '${windowTitleOrHwnd}'.`);
+      }
+    );
+
     // Register with vscode.lm if available
     this.registerLmTools();
   }

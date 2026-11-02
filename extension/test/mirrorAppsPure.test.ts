@@ -18,7 +18,9 @@ import {
   formatAppStatusLabel,
   formatMirrorHeaderStatus,
   formatReloadPrompt,
+  formatWindowPickerOption,
   getAppDisplayState,
+  getAppQuickActions,
   shouldPromptGettingStarted,
 } from '../src/mirror/mirrorStatus';
 
@@ -138,5 +140,34 @@ describe('Mirror Status and Formatting Helpers', () => {
     assert.equal(shouldPromptGettingStarted(false, [{ installed: false }, { installed: false }]), true);
     assert.equal(shouldPromptGettingStarted(true, [{ installed: false }]), false);
     assert.equal(shouldPromptGettingStarted(false, [{ installed: false }, { installed: true }]), false);
+  });
+
+  it('provides tailored quick action toolbars for each mirrored app', () => {
+    const matlabActions = getAppQuickActions('matlab');
+    assert.ok(matlabActions.some((a) => a.id === 'matlab_run' && a.primary));
+    assert.ok(matlabActions.some((a) => a.id === 'matlab_sim'));
+    assert.ok(matlabActions.some((a) => a.id === 'matlab_cw'));
+
+    const ltspiceActions = getAppQuickActions('ltspice');
+    assert.ok(ltspiceActions.some((a) => a.id === 'ltspice_run' && a.primary));
+    assert.ok(ltspiceActions.some((a) => a.id === 'ltspice_fit'));
+
+    const kicadActions = getAppQuickActions('kicad');
+    assert.ok(kicadActions.some((a) => a.id === 'kicad_sym' && a.primary));
+    assert.ok(kicadActions.some((a) => a.id === 'kicad_pcb'));
+
+    const arduinoActions = getAppQuickActions('arduino');
+    assert.ok(arduinoActions.some((a) => a.id === 'arduino_verify' && a.primary));
+    assert.ok(arduinoActions.some((a) => a.id === 'arduino_upload'));
+  });
+
+  it('formats window picker options with title truncation and HWND fallback', () => {
+    assert.equal(formatWindowPickerOption({ hwnd: 12345, title: '' }), 'HWND 12345');
+    assert.equal(formatWindowPickerOption({ hwnd: 12345, title: '   ' }), 'HWND 12345');
+    assert.equal(formatWindowPickerOption({ hwnd: 12345, title: 'MATLAB R2026a' }), 'MATLAB R2026a');
+    const longTitle = 'Very Long Schematic Window Title That Exceeds The Maximum Character Boundary';
+    const formatted = formatWindowPickerOption({ hwnd: 12345, title: longTitle }, 25);
+    assert.equal(formatted.length, 25);
+    assert.ok(formatted.endsWith('...'));
   });
 });

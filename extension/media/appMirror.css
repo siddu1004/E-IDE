@@ -77,6 +77,80 @@ header {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
 }
 
+.window-select {
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border, transparent));
+  background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  font-family: var(--vscode-font-family);
+  font-size: 0.9em;
+  max-width: 200px;
+  cursor: pointer;
+}
+
+.focus-badge {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--vscode-statusBarItem-prominentBackground, #007acc);
+  color: var(--vscode-statusBarItem-prominentForeground, #fff);
+  font-size: 0.8em;
+  font-weight: 500;
+}
+
+body.keyboard-active .focus-badge {
+  display: inline-flex;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+  background: var(--vscode-editorGroupHeader-noTabsBackground, var(--vscode-editor-background));
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border, transparent));
+  background: var(--vscode-button-secondaryBackground, var(--vscode-editor-background));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  font-family: var(--vscode-font-family);
+  font-size: 0.85em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.action-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.action-btn.primary {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  border-color: transparent;
+}
+
+.action-btn.primary:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  margin: 0 2px;
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -103,6 +177,12 @@ main:focus-visible {
   object-fit: contain;
   user-select: none;
   cursor: default;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+body.keyboard-active main {
+  box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
 }
 
 main.gone #screen {
