@@ -1,6 +1,7 @@
 // File system watcher for files opened inside mirrored desktop apps.
 // Detects when the AI agent modifies a mirrored file and prompts the user to reload in the app.
 
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentHistoryManager } from '../agent/agentHistory';
@@ -17,8 +18,11 @@ export class AppFileWatcher implements vscode.Disposable {
       filePath: string;
       app: MirrorApp;
       watcher: vscode.FileSystemWatcher;
+      fsWatcher?: fs.FSWatcher;
     }
   >();
+  private lastPromptTime = new Map<string, number>();
+  private pendingReload?: { appId: string; filePath: string; prompt: string };
   private disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -35,10 +39,24 @@ export class AppFileWatcher implements vscode.Disposable {
       }
       return originalShow(appId, filePath);
     };
+
+    this.disposables.push(
+      vscode.commands.registerCommand('eide.apps.confirmReload', async () => {
+        if (!this.pendingReload) return false;
+        const { appId, filePath } = this.pendingReload;
+        this.pendingReload = undefined;
+        await this.appMirror.reload(appId, filePath);
+        return true;
+      })
+    );
   }
 
   public static getInstance(): AppFileWatcher | undefined {
     return AppFileWatcher.instance;
+  }
+
+  public getPendingReload(): { appId: string; filePath: string; prompt: string } | undefined {
+    return this.pendingReload;
   }
 
   /**
@@ -50,7 +68,6 @@ export class AppFileWatcher implements vscode.Disposable {
     if (!app) return;
 
     if (this.watchedFiles.has(norm)) {
-      // Already watched, update app if needed
       const existing = this.watchedFiles.get(norm)!;
       existing.app = app;
       return;
@@ -65,7 +82,21 @@ export class AppFileWatcher implements vscode.Disposable {
       await this.handleFileChange(filePath);
     });
 
-    this.watchedFiles.set(norm, { filePath, app, watcher });
+    // Also watch via Node fs.watch so files in %TEMP% outside workspaceFolders fire reliably.
+    let fsWatcher: fs.FSWatcher | undefined;
+    try {
+      if (fs.existsSync(dir)) {
+        fsWatcher = fs.watch(dir, (eventType, filename) => {
+          if (filename && filename.toLowerCase() === base.toLowerCase()) {
+            this.handleFileChange(filePath).catch(() => {});
+          }
+        });
+      }
+    } catch {
+      // Best-effort fallback if directory watch is unavailable
+    }
+
+    this.watchedFiles.set(norm, { filePath, app, watcher, fsWatcher });
     this.disposables.push(watcher);
   }
 
@@ -86,13 +117,20 @@ export class AppFileWatcher implements vscode.Disposable {
     const entry = this.watchedFiles.get(norm);
     if (!entry) return false;
 
-    // Only prompt if the change was made by the AI agent
-    const isAgent = AgentHistoryManager.getInstance().isAgentEditing(filePath);
+    // Only prompt if the change was made by the AI agent (60s window covers MATLAB batch saves)
+    const isAgent = AgentHistoryManager.getInstance().isAgentEditing(filePath, 60000);
     if (!isAgent) return false;
 
+    const now = Date.now();
+    const prev = this.lastPromptTime.get(norm) ?? 0;
+    if (now - prev < 1500) return false; // debounce duplicate fs events from a single save
+    this.lastPromptTime.set(norm, now);
+
     const prompt = formatReloadPrompt(entry.app.label);
+    this.pendingReload = { appId: entry.app.id, filePath: entry.filePath, prompt };
     const choice = await vscode.window.showInformationMessage(prompt, 'Reload');
-    if (choice === 'Reload') {
+    if (choice === 'Reload' && this.pendingReload?.filePath === entry.filePath) {
+      this.pendingReload = undefined;
       await this.appMirror.reload(entry.app.id, entry.filePath);
       return true;
     }
@@ -102,6 +140,9 @@ export class AppFileWatcher implements vscode.Disposable {
   public dispose(): void {
     for (const w of this.watchedFiles.values()) {
       w.watcher.dispose();
+      try {
+        w.fsWatcher?.close();
+      } catch {}
     }
     this.watchedFiles.clear();
     this.disposables.forEach((d) => d.dispose());

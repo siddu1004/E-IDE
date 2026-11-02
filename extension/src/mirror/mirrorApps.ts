@@ -7,6 +7,8 @@ import * as path from 'path';
 export interface MirrorApp {
   id: string;
   label: string;
+  /** Codicon name shown in the app tab header and tree view. */
+  icon: string;
   /** Process names (without .exe) whose windows belong to the app, compared case-insensitively. */
   processes: string[];
   /** File extensions this app opens. */
@@ -40,6 +42,7 @@ export const MIRROR_APPS: MirrorApp[] = [
   {
     id: 'matlab',
     label: 'MATLAB / Simulink',
+    icon: 'graph-line',
     processes: ['MATLAB'],
     extensions: ['.slx', '.mdl', '.m', '.mlx', '.mat'],
     installUrl: 'https://www.mathworks.com/downloads/',
@@ -48,6 +51,7 @@ export const MIRROR_APPS: MirrorApp[] = [
   {
     id: 'kicad',
     label: 'KiCad',
+    icon: 'circuit-board',
     processes: ['kicad', 'eeschema', 'pcbnew', 'gerbview', 'pl_editor', 'bitmap2component', 'pcb_calculator'],
     extensions: ['.kicad_pro', '.kicad_sch', '.kicad_pcb'],
     installUrl: 'https://www.kicad.org/download/windows/',
@@ -56,6 +60,7 @@ export const MIRROR_APPS: MirrorApp[] = [
   {
     id: 'ltspice',
     label: 'LTspice',
+    icon: 'pulse',
     processes: ['LTspice', 'XVIIx64', 'XVIIx86'],
     extensions: ['.asc', '.cir', '.net', '.raw'],
     installUrl: 'https://www.analog.com/en/resources/design-tools-and-calculators/ltspice-simulator.html',
@@ -68,6 +73,7 @@ export const MIRROR_APPS: MirrorApp[] = [
   {
     id: 'arduino',
     label: 'Arduino IDE',
+    icon: 'chip',
     processes: ['Arduino IDE'],
     extensions: ['.ino'],
     installUrl: 'https://www.arduino.cc/en/software',
@@ -97,10 +103,27 @@ export function findAppExecutable(
   return app.candidates(env).find((p) => exists(p));
 }
 
+/** Never attach to, type into, or close the user's own open MATLAB/Simulink or KiCad sessions. */
+export function isProtectedUserWindow(title: string): boolean {
+  return /Zero_Perturb_MPPT_Live|Scope_EKF_Tcell|kcad_workshop/i.test(title || '');
+}
+
+/** PIDs that own any protected user window and must not be touched by E-IDE. */
+export function protectedUserPids(windows: AppWindow[]): Set<number> {
+  return new Set(windows.filter((w) => isProtectedUserWindow(w.title)).map((w) => w.pid));
+}
+
 /** The processes whose windows make up the app (MATLAB runs Simulink and scopes in more than one). */
-export function appPids(app: MirrorApp, windows: AppWindow[]): number[] {
+export function appPids(app: MirrorApp, windows: AppWindow[], includeProtected = false): number[] {
   const names = app.processes.map((p) => p.toLowerCase());
-  return [...new Set(windows.filter((w) => names.includes(w.process.toLowerCase())).map((w) => w.pid))];
+  const excluded = includeProtected ? new Set<number>() : protectedUserPids(windows);
+  return [
+    ...new Set(
+      windows
+        .filter((w) => names.includes(w.process.toLowerCase()) && !excluded.has(w.pid))
+        .map((w) => w.pid)
+    ),
+  ];
 }
 
 /** KiCad opens schematics and boards in their own editors rather than in the project manager. */
@@ -134,4 +157,17 @@ export function launchArgs(app: MirrorApp, filePath?: string): string[] {
   if (!filePath) return app.id === 'matlab' ? ['-desktop'] : [];
   if (app.id === 'matlab') return ['-desktop', '-r', `open(${matlabString(filePath)})`];
   return [filePath];
+}
+
+/**
+ * Removes Electron/VS Code extension-host variables (like ELECTRON_RUN_AS_NODE=1 and VSCODE_*) so Electron/Theia
+ * desktop apps such as Arduino IDE 2.x launch their GUI cleanly instead of colliding with the host environment.
+ */
+export function cleanLaunchEnv(env: Record<string, string | undefined> = process.env): Record<string, string | undefined> {
+  const copy: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (/^(ELECTRON_|VSCODE_|NODE_OPTIONS$|AGY_|CHROME_DESKTOP$)/i.test(k)) continue;
+    copy[k] = v;
+  }
+  return copy;
 }

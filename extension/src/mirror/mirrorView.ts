@@ -1,20 +1,46 @@
 // "EEE Apps" sidebar tree view provider.
 // Displays one row per app from MIRROR_APPS with Installed / Running / Not installed status,
-// auto-refreshed every 5 seconds.
+// plus running window titles as child rows that focus that window in the tab when clicked.
 
 import * as vscode from 'vscode';
 import { activeAppMirror, AppStatus } from './appMirror';
 import { getMirrorApp, MirrorApp, MIRROR_APPS } from './mirrorApps';
 import { computeAppStatus, formatAppStatusLabel, getAppDisplayState } from './mirrorStatus';
 
+export class MirrorWindowTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly app: MirrorApp,
+    public readonly windowTitle: string
+  ) {
+    super(windowTitle, vscode.TreeItemCollapsibleState.None);
+    this.iconPath = new vscode.ThemeIcon('window');
+    this.tooltip = `Click to focus '${windowTitle}' inside E-IDE`;
+    this.contextValue = 'runningWindow';
+    this.command = {
+      command: 'eide.apps.focusWindow',
+      title: 'Focus Window in E-IDE',
+      arguments: [app.id, windowTitle],
+    };
+  }
+}
+
 export class MirrorAppTreeItem extends vscode.TreeItem {
+  public readonly windows: string[];
+
   constructor(
     public readonly app: MirrorApp,
     public readonly installed: boolean,
     public readonly running: boolean,
-    public readonly windowCount: number = 0
+    public readonly windowCount: number = 0,
+    windows: string[] = []
   ) {
-    super(app.label, vscode.TreeItemCollapsibleState.None);
+    super(
+      app.label,
+      running && windows.length > 0
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.None
+    );
+    this.windows = windows;
 
     const state = getAppDisplayState(installed, running);
     this.description = formatAppStatusLabel(state);
@@ -50,13 +76,15 @@ export class MirrorAppTreeItem extends vscode.TreeItem {
   }
 }
 
-export class MirrorAppsProvider implements vscode.TreeDataProvider<MirrorAppTreeItem>, vscode.Disposable {
+export type MirrorTreeElement = MirrorAppTreeItem | MirrorWindowTreeItem;
+
+export class MirrorAppsProvider implements vscode.TreeDataProvider<MirrorTreeElement>, vscode.Disposable {
   private static instance?: MirrorAppsProvider;
   private static commandsRegistered = false;
 
-  private _onDidChangeTreeData: vscode.EventEmitter<MirrorAppTreeItem | undefined | void> =
-    new vscode.EventEmitter<MirrorAppTreeItem | undefined | void>();
-  public readonly onDidChangeTreeData: vscode.Event<MirrorAppTreeItem | undefined | void> =
+  private _onDidChangeTreeData: vscode.EventEmitter<MirrorTreeElement | undefined | void> =
+    new vscode.EventEmitter<MirrorTreeElement | undefined | void>();
+  public readonly onDidChangeTreeData: vscode.Event<MirrorTreeElement | undefined | void> =
     this._onDidChangeTreeData.event;
 
   private pollTimer?: NodeJS.Timeout;
@@ -106,11 +134,14 @@ export class MirrorAppsProvider implements vscode.TreeDataProvider<MirrorAppTree
     this._onDidChangeTreeData.fire();
   }
 
-  public getTreeItem(element: MirrorAppTreeItem): vscode.TreeItem {
+  public getTreeItem(element: MirrorTreeElement): vscode.TreeItem {
     return element;
   }
 
-  public async getChildren(element?: MirrorAppTreeItem): Promise<MirrorAppTreeItem[]> {
+  public async getChildren(element?: MirrorTreeElement): Promise<MirrorTreeElement[]> {
+    if (element instanceof MirrorAppTreeItem) {
+      return element.windows.map((title) => new MirrorWindowTreeItem(element.app, title));
+    }
     if (element) return [];
 
     let statuses: AppStatus[] = [];
@@ -125,12 +156,12 @@ export class MirrorAppsProvider implements vscode.TreeDataProvider<MirrorAppTree
     return MIRROR_APPS.map((app) => {
       const live = statuses.find((s) => s.id === app.id);
       if (live) {
-        return new MirrorAppTreeItem(app, live.installed, live.running, live.windows.length);
+        return new MirrorAppTreeItem(app, live.installed, live.running, live.windows.length, live.windows);
       }
 
       const customPath = vscode.workspace.getConfiguration('eide.apps').get<string>(`${app.id}Path`);
       const fallback = computeAppStatus(app, [], customPath);
-      return new MirrorAppTreeItem(app, fallback.installed, fallback.running, 0);
+      return new MirrorAppTreeItem(app, fallback.installed, fallback.running, 0, []);
     });
   }
 
