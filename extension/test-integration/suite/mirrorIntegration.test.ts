@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import { AgentHistoryManager } from '../../src/agent/agentHistory';
 import { AppFileWatcher } from '../../src/mirror/appWatcher';
 import { MIRROR_APPS } from '../../src/mirror/mirrorApps';
-import { MirrorAppsProvider } from '../../src/mirror/mirrorView';
+import { MirrorAppTreeItem, MirrorAppsProvider, MirrorWindowTreeItem } from '../../src/mirror/mirrorView';
 import {
   cleanupTestWorkspace,
   closeAllEditors,
@@ -42,11 +42,29 @@ describe('Milestone 8: Desktop Apps Mirror Integration', function () {
     assert.ok(commands.includes('eide.apps.openFile'), 'eide.apps.openFile must be registered');
     assert.ok(commands.includes('eide.apps.refresh'), 'eide.apps.refresh must be registered');
     assert.ok(commands.includes('eide.apps.installApp'), 'eide.apps.installApp must be registered');
+    assert.ok(commands.includes('eide.apps.focusWindow'), 'eide.apps.focusWindow must be registered');
+    assert.ok(commands.includes('eide.apps.popOut'), 'eide.apps.popOut must be registered');
+    assert.ok(commands.includes('eide.apps.checkStatus'), 'eide.apps.checkStatus must be registered');
+    assert.ok(commands.includes('eide.apps.configurePaths'), 'eide.apps.configurePaths must be registered');
+  });
+
+  it('provides child window rows under running apps in EEE Apps tree view', async () => {
+    const provider = MirrorAppsProvider.getInstance() || new MirrorAppsProvider();
+    const kicadApp = MIRROR_APPS.find((a) => a.id === 'kicad')!;
+    const runningItem = new MirrorAppTreeItem(kicadApp, true, true, 2, [
+      'rc_filter — Schematic Editor',
+      'rc_filter — PCB Editor',
+    ]);
+    const children = await provider.getChildren(runningItem);
+    assert.equal(children.length, 2);
+    assert.ok(children[0] instanceof MirrorWindowTreeItem);
+    assert.equal(children[0].command?.command, 'eide.apps.focusWindow');
+    assert.deepEqual(children[0].command?.arguments, ['kicad', 'rc_filter — Schematic Editor']);
   });
 
   it('provides tree data for EEE Apps sidebar view with all 4 apps', async () => {
     const provider = MirrorAppsProvider.getInstance() || new MirrorAppsProvider();
-    const items = await provider.getChildren();
+    const items = (await provider.getChildren()) as MirrorAppTreeItem[];
     assert.equal(items.length, 4, 'EEE Apps view must display exactly 4 apps');
 
     const appIds = items.map((i) => i.app.id);

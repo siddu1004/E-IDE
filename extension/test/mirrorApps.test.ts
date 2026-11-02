@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   appForFile,
   appPids,
+  cleanLaunchEnv,
   findAppExecutable,
   getMirrorApp,
   launchArgs,
@@ -71,4 +72,17 @@ test('windowsShowingFile finds the app windows titled with the file', () => {
   const shown = windowsShowingFile(getMirrorApp('kicad')!, windows, 'C:/p/board.kicad_pcb');
   assert.deepEqual(shown.map((w) => w.hwnd), [4]);
   assert.deepEqual(windowsShowingFile(getMirrorApp('matlab')!, windows, 'board.kicad_pcb'), []);
+});
+
+test('cleanLaunchEnv strips Electron and VS Code host variables so Electron apps open their GUI', () => {
+  const cleaned = cleanLaunchEnv({
+    PATH: 'C:\\Windows',
+    ELECTRON_RUN_AS_NODE: '1',
+    ELECTRON_NO_ATTACH_CONSOLE: '1',
+    VSCODE_IPC_HOOK: '\\\\.\\pipe\\vscode',
+    VSCODE_PID: '11044',
+    NODE_OPTIONS: '--require foo.js',
+    AGY_TOKEN: 'secret',
+  });
+  assert.deepEqual(cleaned, { PATH: 'C:\\Windows' });
 });
