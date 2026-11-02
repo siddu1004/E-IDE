@@ -35,6 +35,24 @@ You can open a desktop app inside E-IDE using any of the following methods:
 - **Platform**: Windows only (powered by Windows desktop window capture).
 - **Keyboard Input**: While an app tab has focus, keys and shortcuts (`Ctrl+S`, `Ctrl+Z`, ...) go to the app. `Ctrl+Tab`, `Ctrl+PageUp/PageDown`, `Ctrl+Shift+P` and `F1` stay with the IDE.
 
+## Install
+
+- **Requirements**: Windows 10/11, Windows PowerShell 5.1, Node.js 20+.
+- **Build `.vsix`**:
+  ```bash
+  cd extension
+  npm install
+  npx @vscode/vsce package --skip-license
+  ```
+- **Install**:
+  ```bash
+  antigravity-ide --install-extension e-ide-0.0.1.vsix
+  ```
+- **Troubleshooting**:
+  - **Windows Defender**: E-IDE loads `mirror/WinMirror.cs` in-memory via `winmirror.ps1` and `Add-Type`, writing no unsigned `.exe` to disk.
+  - **DPI Scaling**: `WinMirror` uses Per-Monitor V2 DPI awareness for 150% displays; toggle **Fit window to tab** in the tab header to match window dimensions 1:1.
+  - **App not detected**: Click **Set Path** on the warning prompt or configure `eide.apps.<app>Path` in Settings (`E-IDE: Set Custom App Paths`).
+
 ## Requirements
 
 - LTspice (24 or newer recommended)
