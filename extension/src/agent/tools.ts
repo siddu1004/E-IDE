@@ -105,11 +105,7 @@ export function assertPathInWorkspace(filePath: string): string {
     const rel = path.relative(root, normResolved);
     return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
   });
-  const m9Root = path.normalize(real(path.join(os.tmpdir(), 'eide-m9'))).toLowerCase();
-  const relM9 = path.relative(m9Root, normResolved);
-  const isInM9Temp = relM9 !== '..' && !relM9.startsWith('..' + path.sep) && !path.isAbsolute(relM9);
-  const isWatched = AppFileWatcher.getInstance()?.isWatching(resolved) ?? false;
-  if (!isInWorkspace && !isInM9Temp && !isWatched) {
+  if (!isInWorkspace) {
     throw new Error(`Security violation: file path '${filePath}' is outside the open workspace folders.`);
   }
   return resolved;

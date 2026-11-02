@@ -15,7 +15,6 @@ import {
   cleanLaunchEnv,
   findAppExecutable,
   getMirrorApp,
-  isProtectedUserWindow,
   launchArgs,
   launchExecutable,
   matlabReloadCommand,
@@ -38,7 +37,6 @@ export class MirrorSession {
   private waiters: Array<{ type: string; resolve: (msg: any) => void }> = [];
   private listeners = new Set<(msg: any) => void>();
   public lastFrame: MirrorFrame | undefined;
-  public lastGoneMinimized: boolean | undefined;
 
   constructor(private readonly scriptPath: string) {}
 
@@ -58,10 +56,6 @@ export class MirrorSession {
     });
   }
 
-  getPid(): number | undefined {
-    return this.child?.pid;
-  }
-
   private onData(chunk: string): void {
     this.buffer += chunk;
     let nl: number;
@@ -78,12 +72,7 @@ export class MirrorSession {
   }
 
   private emit(msg: any): void {
-    if (msg.type === 'frame') {
-      this.lastFrame = msg;
-      this.lastGoneMinimized = undefined;
-    } else if (msg.type === 'gone') {
-      this.lastGoneMinimized = !!msg.minimized;
-    }
+    if (msg.type === 'frame') this.lastFrame = msg;
     const ready = this.waiters.filter((w) => w.type === msg.type);
     this.waiters = this.waiters.filter((w) => w.type !== msg.type);
     ready.forEach((w) => w.resolve(msg));
@@ -122,13 +111,6 @@ export class MirrorSession {
   async snapshot(): Promise<MirrorFrame> {
     const reply = this.waitFor('frame', 10000);
     this.send('snap');
-    return reply;
-  }
-
-  /** Captures a specific window by HWND (e.g., the IDE window itself). */
-  async captureWindow(hwnd: number): Promise<MirrorFrame> {
-    const reply = this.waitFor('shot', 10000);
-    this.send(`shot ${hwnd}`);
     return reply;
   }
 
@@ -258,7 +240,7 @@ export class AppMirrorController implements vscode.Disposable {
     const entry = this.session(app);
     if (filePath) entry.filePath = filePath;
 
-    let pids = appPids(app, await entry.session.listWindows(), false);
+    let pids = appPids(app, await entry.session.listWindows());
     // A file opens in a fresh instance, except in MATLAB, which is too heavy to start twice.
     const mustLaunch = pids.length === 0 || (filePath !== undefined && app.id !== 'matlab');
 
@@ -294,11 +276,11 @@ export class AppMirrorController implements vscode.Disposable {
           const deadline = Date.now() + 120000; // MATLAB can take a minute to show its desktop
           while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 1500));
-            const now = appPids(app, await entry.session.listWindows(), false);
+            const now = appPids(app, await entry.session.listWindows());
             const spawned = now.filter((p) => !before.has(p));
             if (spawned.length > 0) return spawned;
           }
-          return appPids(app, await entry.session.listWindows(), false);
+          return appPids(app, await entry.session.listWindows());
         }
       );
       if (pids.length === 0) {
@@ -318,15 +300,10 @@ export class AppMirrorController implements vscode.Disposable {
     return entry;
   }
 
-  /** Runs a command in the E-IDE MATLAB desktop by typing it into its Command Window (never touches protected user sessions). */
-  public async runInMatlab(entry: OpenMirror, command: string): Promise<void> {
-    const wins = await entry.session.listWindows();
-    const main = wins.find(
-      (w) =>
-        w.process.toLowerCase() === 'matlab' &&
-        /^MATLAB R\d/.test(w.title) &&
-        !isProtectedUserWindow(w.title) &&
-        (!entry.pids?.length || entry.pids.includes(w.pid))
+  /** Runs a command in the attached MATLAB desktop by typing it into its Command Window. */
+  private async runInMatlab(entry: OpenMirror, command: string): Promise<void> {
+    const main = (await entry.session.listWindows()).find(
+      (w) => w.process.toLowerCase() === 'matlab' && /^MATLAB R\d/.test(w.title) && (!entry.pids?.length || entry.pids.includes(w.pid))
     );
     if (!main) throw new Error('The MATLAB desktop window was not found.');
     const s = entry.session;
@@ -357,11 +334,7 @@ export class AppMirrorController implements vscode.Disposable {
       if (command) await this.runInMatlab(entry, command);
       return this.show(appId);
     }
-    const allWins = await entry.session.listWindows();
-    let holding = windowsShowingFile(app, allWins, targetFile);
-    if (holding.length === 0 && entry.pids?.length) {
-      holding = allWins.filter((w) => entry.pids!.includes(w.pid));
-    }
+    const holding = windowsShowingFile(app, await entry.session.listWindows(), targetFile);
     holding.forEach((w) => entry.session.send(`close ${w.hwnd}`));
     const deadline = Date.now() + 60000; // time to answer a save prompt
     while (holding.length && Date.now() < deadline) {
@@ -413,7 +386,7 @@ export class AppMirrorController implements vscode.Disposable {
           entry.session.send('snap');
           break;
         case 'reload':
-          this.reload(entry.app.id, entry.filePath);
+          this.reload(entry.app.id, entry.filePath).catch((e) => vscode.window.showErrorMessage(`Reload failed: ${e.message}`));
           break;
         case 'popout':
           entry.session.send('popout');
@@ -498,7 +471,7 @@ export class AppMirrorController implements vscode.Disposable {
     await this.show(appId);
     const entry = this.open.get(appId);
     if (!entry) return undefined;
-    const wins = (await entry.session.listWindows()).filter((w) => !isProtectedUserWindow(w.title));
+    const wins = await entry.session.listWindows();
     const match = wins.find((w) =>
       typeof hwndOrTitle === 'number'
         ? w.hwnd === hwndOrTitle
@@ -518,75 +491,13 @@ export class AppMirrorController implements vscode.Disposable {
     if (entry) entry.session.send('popout');
   }
 
-  async fit(appId: string, width: number, height: number): Promise<MirrorFrame> {
-    const { session } = await this.ensure(appId);
-    session.send(`fit ${width | 0} ${height | 0}`);
-    await new Promise((r) => setTimeout(r, 600));
-    return session.snapshot();
-  }
-
-  async minimize(appId: string, restore = false): Promise<{ minimized: boolean; statusText: string }> {
-    const entry = await this.ensure(appId);
-    entry.session.send(`minimize ${restore ? 'restore' : 'min'}`);
-    await new Promise((r) => setTimeout(r, 900));
-    if (restore) {
-      await entry.session.snapshot();
-      return { minimized: false, statusText: formatMirrorHeaderStatus('live', 12, entry.app.label) };
-    }
-    return {
-      minimized: true,
-      statusText: formatMirrorHeaderStatus(
-        entry.session.lastGoneMinimized ? 'minimized' : 'gone',
-        0,
-        entry.app.label
-      ),
-    };
-  }
-
-  async closeTab(appId: string): Promise<{ closed: boolean; previousHelperPid?: number }> {
-    const entry = this.open.get(appId);
-    const pid = entry?.session.getPid();
-    if (entry?.panel) {
-      entry.panel.dispose();
-    } else if (entry) {
-      entry.session.dispose();
-      this.open.delete(appId);
-    }
-    return { closed: true, previousHelperPid: pid };
-  }
-
-  getHelperInfo(appId: string): { helperPid?: number; attachedPids?: number[]; filePath?: string; lastGoneMinimized?: boolean } {
-    const entry = this.open.get(appId);
-    return {
-      helperPid: entry?.session.getPid(),
-      attachedPids: entry?.pids,
-      filePath: entry?.filePath,
-      lastGoneMinimized: entry?.session.lastGoneMinimized,
-    };
-  }
-
-  async captureIdeWindow(): Promise<MirrorFrame> {
-    const shared = this.open.values().next().value as OpenMirror | undefined;
-    const probe = shared?.session ?? new MirrorSession(this.scriptPath);
-    try {
-      const wins = await probe.listWindows();
-      const ideWin =
-        wins.find((w) => /Antigravity/i.test(w.process) && /E-IDE/i.test(w.title)) ??
-        wins.find((w) => /Antigravity|Code/i.test(w.process));
-      if (!ideWin) throw new Error('Antigravity IDE window was not found on the desktop.');
-      return await probe.captureWindow(ideWin.hwnd);
-    } finally {
-      if (!shared) probe.dispose();
-    }
-  }
-
   async status(): Promise<AppStatus[]> {
     const shared = this.open.values().next().value as OpenMirror | undefined;
     const probe = shared?.session ?? new MirrorSession(this.scriptPath);
     try {
       const windows = await probe.listWindows();
       return MIRROR_APPS.map((app) => {
-        const pids = appPids(app, windows, true);
+        const pids = appPids(app, windows);
         return {
           id: app.id,
           label: app.label,

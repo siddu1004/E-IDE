@@ -604,54 +604,10 @@ export class EidMcpServer {
       'See a desktop app: returns a picture of all its windows as the user sees them in the E-IDE tab.',
       {
         app: z.enum(appIds).describe('Which app'),
-        target: z.enum(['app', 'ide']).optional().default('app').describe('Capture app frame or full IDE window'),
-        focusWindow: z.string().optional().describe('Optional window title to focus before capture'),
-        fitWidth: z.number().optional().describe('Optional width to fit main window to'),
-        fitHeight: z.number().optional().describe('Optional height to fit main window to'),
-        action: z.enum(['reload', 'popout', 'minimize', 'restore', 'closeTab', 'confirmReload', 'helperInfo', 'themeLight', 'themeDark', 'openWalkthrough']).optional(),
+        focusWindow: z.string().optional().describe('Optional window title to bring forward in the tab first'),
       },
-      async ({ app, target, focusWindow, fitWidth, fitHeight, action }) => {
-        if (action === 'helperInfo') {
-          return { content: [{ type: 'text', text: JSON.stringify(mirror().getHelperInfo(app), null, 2) }] };
-        }
-        if (action === 'closeTab') {
-          const res = await mirror().closeTab(app);
-          return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
-        }
-        if (action === 'minimize' || action === 'restore') {
-          const res = await mirror().minimize(app, action === 'restore');
-          return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
-        }
-        if (action === 'popout') {
-          await mirror().popOut(app);
-        }
-        if (action === 'reload') {
-          await mirror().reload(app);
-        }
-        if (action === 'confirmReload') {
-          await vscode.commands.executeCommand('eide.apps.confirmReload');
-        }
-        if (action === 'themeLight') {
-          await vscode.workspace.getConfiguration('workbench').update('colorTheme', 'Default Light Modern', vscode.ConfigurationTarget.Global);
-          await new Promise((r) => setTimeout(r, 600));
-        }
-        if (action === 'themeDark') {
-          await vscode.workspace.getConfiguration('workbench').update('colorTheme', 'Default Dark Modern', vscode.ConfigurationTarget.Global);
-          await new Promise((r) => setTimeout(r, 600));
-        }
-        if (action === 'openWalkthrough') {
-          await vscode.commands.executeCommand('workbench.action.openWalkthrough', 'siddu1004.e-ide#eide.gettingStarted', false);
-          await new Promise((r) => setTimeout(r, 600));
-        }
-        if (focusWindow) {
-          await mirror().focusWindow(app, focusWindow);
-        }
-        if (fitWidth && fitHeight) {
-          return frameContent(await mirror().fit(app, fitWidth, fitHeight), 'After fit.');
-        }
-        if (target === 'ide') {
-          return frameContent(await mirror().captureIdeWindow(), 'IDE window.');
-        }
+      async ({ app, focusWindow }) => {
+        if (focusWindow) await mirror().focusWindow(app, focusWindow);
         return frameContent(await mirror().capture(app), 'Current view.');
       }
     );

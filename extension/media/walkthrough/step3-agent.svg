@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" font-family="var(--vscode-font-family, sans-serif)" font-size="14">
+<style>.fg{fill:var(--vscode-foreground)}.mut{fill:var(--vscode-descriptionForeground)}.box{fill:var(--vscode-editorWidget-background);stroke:var(--vscode-widget-border, var(--vscode-contrastBorder, #8884))}.acc{fill:var(--vscode-button-background)}.acct{fill:var(--vscode-button-foreground)}.ln{stroke:var(--vscode-foreground);fill:none;stroke-width:2}</style>
+<rect class="box" x="20" y="105" width="120" height="90" rx="8"/><text class="fg" x="80" y="155" text-anchor="middle" font-weight="600">AI agent</text>
+<rect class="box" x="180" y="80" width="120" height="140" rx="8"/><text class="fg" x="240" y="108" text-anchor="middle" font-weight="600">E-IDE tools</text>
+<text class="mut" x="240" y="136" text-anchor="middle" font-size="12">capture</text><text class="mut" x="240" y="158" text-anchor="middle" font-size="12">click / type</text><text class="mut" x="240" y="180" text-anchor="middle" font-size="12">edit file</text><text class="mut" x="240" y="202" text-anchor="middle" font-size="12">reload</text>
+<rect class="box" x="340" y="105" width="120" height="90" rx="8"/><text class="fg" x="400" y="148" text-anchor="middle" font-weight="600">Desktop app</text><text class="mut" x="400" y="170" text-anchor="middle" font-size="12">you approve</text>
+<path class="ln" d="M140 150 H178 M302 150 H338"/>
+</svg>

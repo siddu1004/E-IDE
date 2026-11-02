@@ -1,51 +1,11 @@
 // Live view of a desktop app inside an E-IDE tab: draws frames from the host and sends input back.
 (function () {
   const vscode = acquireVsCodeApi();
-  const header = document.querySelector('header');
   const stage = document.getElementById('stage');
   const screen = document.getElementById('screen');
   const statusEl = document.getElementById('status');
   const titleEl = document.getElementById('window-title');
   const fitToggle = document.getElementById('fit-toggle');
-
-  // Ensure header has icon, Reload, and Pop out buttons even if host HTML was from an older session
-  if (header && !document.getElementById('reload-btn')) {
-    const appNameEl = header.querySelector('.app-name');
-    const appLabel = (appNameEl && appNameEl.textContent) || '';
-    if (!header.querySelector('.app-icon') && appNameEl) {
-      const iconSpan = document.createElement('span');
-      iconSpan.className = 'app-icon';
-      iconSpan.setAttribute('aria-hidden', 'true');
-      if (/MATLAB/i.test(appLabel)) {
-        iconSpan.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 13.5V2.5M1.5 13.5H14.5"/><path d="M3 11L6.5 5.5L9.5 9.5L13.5 3.5"/></svg>';
-      } else if (/KiCad/i.test(appLabel)) {
-        iconSpan.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1.5"/><circle cx="5.5" cy="5.5" r="1.2"/><circle cx="10.5" cy="10.5" r="1.2"/><path d="M6.5 5.5H9L10.5 7V9.3"/></svg>';
-      } else if (/LTspice/i.test(appLabel)) {
-        iconSpan.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8H4.5L6.5 3L9.5 13L11.5 8H14.5"/></svg>';
-      } else {
-        iconSpan.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6 1.5V4M10 1.5V4M6 12V14.5M10 12V14.5M1.5 6H4M1.5 10H4M12 6H14.5M12 10H14.5"/></svg>';
-      }
-      header.insertBefore(iconSpan, appNameEl);
-    }
-    const toggleLabel = header.querySelector('.toggle');
-    const rBtn = document.createElement('button');
-    rBtn.type = 'button';
-    rBtn.id = 'reload-btn';
-    rBtn.className = 'header-btn';
-    rBtn.title = 'Reload file or refresh in ' + appLabel;
-    rBtn.textContent = '↻ Reload';
-    const pBtn = document.createElement('button');
-    pBtn.type = 'button';
-    pBtn.id = 'popout-btn';
-    pBtn.className = 'header-btn';
-    pBtn.title = 'Restore and bring ' + appLabel + ' to the foreground';
-    pBtn.textContent = '↗ Pop out to real window';
-    header.insertBefore(rBtn, toggleLabel);
-    header.insertBefore(pBtn, toggleLabel);
-    if (statusEl && statusEl.textContent === 'Connecting...') {
-      statusEl.textContent = 'Starting ' + appLabel + '…';
-    }
-  }
 
   const reloadBtn = document.getElementById('reload-btn');
   const popoutBtn = document.getElementById('popout-btn');
@@ -124,10 +84,7 @@
   window.addEventListener('blur', () => vscode.postMessage({ type: 'release' }));
 
   if (reloadBtn) {
-    reloadBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'reload' });
-      vscode.postMessage({ type: 'ready' });
-    });
+    reloadBtn.addEventListener('click', () => vscode.postMessage({ type: 'reload' }));
   }
   if (popoutBtn) {
     popoutBtn.addEventListener('click', () => vscode.postMessage({ type: 'popout' }));
@@ -155,8 +112,9 @@
 
   setInterval(() => {
     if (stage.classList.contains('gone')) return;
+    // Unchanged frames are not sent, so a still app shows no frame rate.
     if (frames) statusEl.textContent = `Live · ${frames} fps`;
-    else if (screen.src) statusEl.textContent = 'Live · 12 fps';
+    else if (screen.src) statusEl.textContent = 'Live';
     frames = 0;
   }, 1000);
 
@@ -169,7 +127,7 @@
         stage.classList.remove('gone');
         frames++;
         if (statusEl.textContent.startsWith('Starting') || statusEl.textContent.startsWith('Connecting') || statusEl.textContent.includes('closed or minimized')) {
-          statusEl.textContent = 'Live · 12 fps';
+          statusEl.textContent = 'Live';
         }
         break;
       case 'gone':

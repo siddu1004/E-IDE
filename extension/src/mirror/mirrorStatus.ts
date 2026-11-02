@@ -81,7 +81,7 @@ export function computeAppStatus(
   env: Record<string, string | undefined> = process.env
 ): { installed: boolean; running: boolean; pids: number[] } {
   const exe = findAppExecutable(app, customPath, env);
-  const pids = appPids(app, windows, true);
+  const pids = appPids(app, windows);
   return {
     installed: !!exe,
     running: pids.length > 0,

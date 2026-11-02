@@ -10,7 +10,6 @@
 //   close <hwnd>                  -> asks that window to close, as its close button would
 //   popout                        -> restores and brings the attached app windows to the real desktop foreground
 //   minimize [restore]            -> minimizes or restores the attached app windows
-//   shot <hwnd>                   -> captures a single window by hwnd and emits {"type":"shot",...}
 // Windows are captured with PrintWindow, so the app keeps rendering while the IDE covers it,
 // and input is posted to the window under the pointer without moving the real mouse.
 using System;
@@ -53,12 +52,9 @@ public static class WinMirror
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int value, int size);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
-    [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool GetKeyboardState(byte[] state);
     [DllImport("user32.dll")] static extern bool SetKeyboardState(byte[] state);
     [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint mapType);
-    [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, IntPtr dwExtraInfo);
 
     const int GWL_EXSTYLE = -20, WS_EX_TOOLWINDOW = 0x80;
     const uint PW_RENDERFULLCONTENT = 2;
@@ -74,66 +70,17 @@ public static class WinMirror
     static readonly HashSet<int> held = new HashSet<int>(); // keys pressed in the tab, guarded by Gate
     static readonly HashSet<int> touchedKeys = new HashSet<int>();
 
-    static readonly System.Collections.Concurrent.BlockingCollection<string> cmdQueue = new System.Collections.Concurrent.BlockingCollection<string>();
-    static string lastOutFile;
-
     public static void Main()
     {
         try { SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch { } // Per-Monitor V2 DPI awareness on 150% displays
         SetProcessDPIAware();
         Console.OutputEncoding = new UTF8Encoding(false);
         new Thread(CaptureLoop) { IsBackground = true }.Start();
-        new Thread(() =>
-        {
-            string s;
-            while ((s = Console.In.ReadLine()) != null) cmdQueue.Add(s);
-            cmdQueue.CompleteAdding();
-        }) { IsBackground = true }.Start();
-        new Thread(PollCmdFileLoop) { IsBackground = true }.Start();
-
-        foreach (var line in cmdQueue.GetConsumingEnumerable())
+        string line;
+        while ((line = Console.In.ReadLine()) != null)
         {
             try { Handle(line.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)); }
-            catch (Exception e) { EmitCmd("{\"type\":\"error\",\"cmd\":" + Json(line) + ",\"message\":" + Json(e.ToString()) + "}"); }
-        }
-    }
-
-    static void PollCmdFileLoop()
-    {
-        string dir = Path.Combine(Path.GetTempPath(), "eide-m9");
-        string cmdPath = Path.Combine(dir, "wm_cmd.txt");
-        string myTmp = Path.Combine(dir, "wm_cmd_" + Process.GetCurrentProcess().Id + ".tmp");
-        while (!cmdQueue.IsAddingCompleted)
-        {
-            try
-            {
-                if (File.Exists(cmdPath))
-                {
-                    string preview = File.ReadAllText(cmdPath, Encoding.UTF8).Trim();
-                    if (preview.Length > 0)
-                    {
-                        bool match = true;
-                        if (preview.StartsWith("@"))
-                        {
-                            int sp = preview.IndexOf(' ');
-                            uint wantPid = uint.Parse(preview.Substring(1, sp - 1));
-                            lock (Gate) match = pids.Contains(wantPid);
-                        }
-                        if (match)
-                        {
-                            if (File.Exists(myTmp)) File.Delete(myTmp);
-                            File.Move(cmdPath, myTmp); // atomic claim across multiple winmirror processes
-                            string raw = File.ReadAllText(myTmp, Encoding.UTF8).Trim();
-                            File.Delete(myTmp);
-                            string cmd = raw.StartsWith("@") ? raw.Substring(raw.IndexOf(' ') + 1).Trim() : raw;
-                            lastOutFile = Path.Combine(dir, "wm_out.json");
-                            cmdQueue.Add(cmd);
-                        }
-                    }
-                }
-            }
-            catch { }
-            Thread.Sleep(60);
+            catch (Exception e) { Emit("{\"type\":\"error\",\"message\":" + Json(e.Message) + "}"); }
         }
     }
 
@@ -142,121 +89,36 @@ public static class WinMirror
         if (a == null || a.Length == 0) return;
         switch (a[0])
         {
-            case "list": EmitCmd(ListWindows()); break;
+            case "list": Emit(ListWindows()); break;
             case "attach":
-                var safePids = a[1].Split(',').Where(s => s.Length > 0).Select(uint.Parse).Where(p => !ProtectedPids().Contains(p));
                 lock (Gate)
                 {
-                    pids = new HashSet<uint>(safePids);
+                    pids = new HashSet<uint>(a[1].Split(',').Where(s => s.Length > 0).Select(uint.Parse));
                     forceFrame = true;
                 }
                 foreach (var w in WindowsOf(pids, true)) if (IsIconic(w)) ShowWindow(w, 4); // SW_SHOWNOACTIVATE
                 break;
-            case "fit": Fit(int.Parse(a[1]), int.Parse(a[2])); EmitAck(); break;
-            case "mouse":
-                int mBtn = 0;
-                if (a.Length > 4 && !int.TryParse(a[4], out mBtn))
-                {
-                    mBtn = a[4] == "right" ? 2 : a[4] == "middle" ? 1 : 0;
-                }
-                int mDelta = a.Length > 5 ? int.Parse(a[5]) : 0;
-                Mouse(a[1], int.Parse(a[2]), int.Parse(a[3]), mBtn, mDelta);
-                EmitAck();
-                break;
-            case "key": Key(a[1] == "down", int.Parse(a[2])); EmitAck(); break;
-            case "combo":
-                var vks = a[1].Split(',').Where(s => s.Length > 0).Select(int.Parse).ToArray();
-                for (int i = 0; i < vks.Length; i++) { Key(true, vks[i]); Thread.Sleep(30); }
-                Thread.Sleep(40);
-                for (int i = vks.Length - 1; i >= 0; i--) { Key(false, vks[i]); Thread.Sleep(30); }
-                Thread.Sleep(350);
-                EmitAck();
-                break;
-            case "release": lock (Gate) held.Clear(); SyncKeys(focusTarget); EmitAck(); break;
-            case "char": SendChar(int.Parse(a[1])); EmitAck(); break;
+            case "fit": Fit(int.Parse(a[1]), int.Parse(a[2])); break;
+            case "mouse": Mouse(a[1], int.Parse(a[2]), int.Parse(a[3]), int.Parse(a[4]), a.Length > 5 ? int.Parse(a[5]) : 0); break;
+            case "key": Key(a[1] == "down", int.Parse(a[2])); break;
+            case "release": lock (Gate) held.Clear(); SyncKeys(focusTarget); break;
+            case "char": SendChar(int.Parse(a[1])); break;
             case "snap": lock (Gate) forceFrame = true; break;
-            case "focus": Focus((IntPtr)long.Parse(a[1])); lock (Gate) forceFrame = true; EmitAck(); break;
-            case "close":
-                IntPtr cw = (IntPtr)long.Parse(a[1]);
-                if (!IsProtectedWindow(cw)) PostMessage(cw, 0x0010, IntPtr.Zero, IntPtr.Zero); // WM_CLOSE
-                EmitAck();
-                break;
-            case "popout": PopOut(); EmitAck(); break;
-            case "minimize": Minimize(a.Length > 1 && a[1] == "restore"); EmitAck(); break;
-            case "shot": Shot(a.Length > 1 ? (IntPtr)long.Parse(a[1]) : IntPtr.Zero, false); break;
-            case "screen": Shot(a.Length > 1 ? (IntPtr)long.Parse(a[1]) : IntPtr.Zero, true); break;
-            case "ideclick":
-                IdeClick(int.Parse(a[1]), int.Parse(a[2]), a.Length > 3 ? int.Parse(a[3]) : 0);
-                break;
-            case "launch":
-                string exe = Encoding.UTF8.GetString(Convert.FromBase64String(a[1]));
-                string arg = a.Length > 2 ? Encoding.UTF8.GetString(Convert.FromBase64String(a[2])) : "";
-                foreach (System.Collections.DictionaryEntry de in Environment.GetEnvironmentVariables())
-                {
-                    string k = de.Key.ToString();
-                    if (k.StartsWith("ELECTRON_", StringComparison.OrdinalIgnoreCase) ||
-                        k.StartsWith("VSCODE_", StringComparison.OrdinalIgnoreCase) ||
-                        k.StartsWith("AGY_", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(k, "NODE_OPTIONS", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(k, "CHROME_DESKTOP", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Environment.SetEnvironmentVariable(k, null);
-                    }
-                }
-                var psi = new ProcessStartInfo(exe, arg)
-                {
-                    UseShellExecute = true,
-                    WorkingDirectory = Path.GetDirectoryName(exe) ?? ""
-                };
-                var pr = Process.Start(psi);
-                EmitCmd("{\"type\":\"launched\",\"pid\":" + (pr != null ? pr.Id : 0) + "}");
-                break;
+            case "focus": Focus((IntPtr)long.Parse(a[1])); lock (Gate) forceFrame = true; break;
+            case "close": PostMessage((IntPtr)long.Parse(a[1]), 0x0010, IntPtr.Zero, IntPtr.Zero); break; // WM_CLOSE
+            case "popout": PopOut(); break;
+            case "minimize": Minimize(a.Length > 1 && a[1] == "restore"); break;
         }
-    }
-
-    static bool IsProtectedTitle(string t)
-    {
-        if (string.IsNullOrEmpty(t)) return false;
-        return t.IndexOf("Zero_Perturb_MPPT_Live", StringComparison.OrdinalIgnoreCase) >= 0 ||
-               t.IndexOf("Scope_EKF_Tcell", StringComparison.OrdinalIgnoreCase) >= 0 ||
-               t.IndexOf("kcad_workshop", StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    static HashSet<uint> ProtectedPids()
-    {
-        var prot = new HashSet<uint>();
-        EnumWindows((h, p) =>
-        {
-            if (!IsWindowVisible(h)) return true;
-            if (IsProtectedTitle(Title(h)))
-            {
-                uint pid;
-                GetWindowThreadProcessId(h, out pid);
-                prot.Add(pid);
-            }
-            return true;
-        }, IntPtr.Zero);
-        return prot;
-    }
-
-    static bool IsProtectedWindow(IntPtr h)
-    {
-        if (h == IntPtr.Zero) return false;
-        uint pid;
-        GetWindowThreadProcessId(h, out pid);
-        return ProtectedPids().Contains(pid);
     }
 
     // Real app windows only: visible, not cloaked, big enough. Minimized windows are kept when asked so they can be restored.
     static List<IntPtr> WindowsOf(HashSet<uint> owners, bool includeMinimized = false)
     {
-        HashSet<uint> prot = ProtectedPids();
         var found = new List<IntPtr>();
         EnumWindows((h, p) =>
         {
             uint pid;
             GetWindowThreadProcessId(h, out pid);
-            if (prot.Contains(pid)) return true;
             if (owners != null && !owners.Contains(pid)) return true;
             if (!IsWindowVisible(h)) return true;
             int cloaked;
@@ -338,95 +200,11 @@ public static class WinMirror
         lock (Gate) forceFrame = true;
     }
 
-    static bool IsChromeWidget(IntPtr h)
-    {
-        var sb = new StringBuilder(128);
-        GetClassName(h, sb, sb.Capacity);
-        return sb.ToString().StartsWith("Chrome_WidgetWin", StringComparison.Ordinal);
-    }
-
     static bool IsWin32Button(IntPtr h)
     {
         var sb = new StringBuilder(64);
         GetClassName(h, sb, sb.Capacity);
         return string.Equals(sb.ToString(), "Button", StringComparison.OrdinalIgnoreCase);
-    }
-
-    static void IdeClick(int x, int y, int button)
-    {
-        IntPtr ide = IntPtr.Zero;
-        foreach (var w in WindowsOf(null, true))
-        {
-            if (Title(w).IndexOf("Antigravity", StringComparison.OrdinalIgnoreCase) >= 0) { ide = w; break; }
-        }
-        if (ide == IntPtr.Zero) return;
-        RECT r;
-        GetWindowRect(ide, out r);
-        POINT s = new POINT { X = r.L + x, Y = r.T + y };
-        IntPtr h = ide;
-        while (true)
-        {
-            POINT p = s;
-            ScreenToClient(h, ref p);
-            IntPtr c = ChildWindowFromPointEx(h, p, CWP_SKIPALL);
-            if (c == IntPtr.Zero || c == h) break;
-            h = c;
-        }
-        POINT client = s;
-        ScreenToClient(h, ref client);
-        IntPtr lp = Pack(client.X, client.Y);
-        int buttons = button == 0 ? 1 : button == 2 ? 2 : button == 1 ? 0x10 : 0;
-        uint down = button == 2 ? 0x0204u : button == 1 ? 0x0207u : 0x0201u;
-        GiveFocus(h);
-        PostMessage(h, 0x0200, IntPtr.Zero, lp);
-        Thread.Sleep(40);
-        PostMessage(h, down, (IntPtr)buttons, lp);
-        Thread.Sleep(40);
-        PostMessage(h, down + 1, IntPtr.Zero, lp);
-        Thread.Sleep(450);
-        Shot(ide, false);
-    }
-
-    static void Shot(IntPtr h, bool useScreen)
-    {
-        if (h == IntPtr.Zero)
-        {
-            foreach (var w in WindowsOf(null, true))
-            {
-                if (Title(w).IndexOf("Antigravity", StringComparison.OrdinalIgnoreCase) >= 0) { h = w; break; }
-            }
-        }
-        if (h == IntPtr.Zero || !IsWindow(h)) return;
-        if (IsIconic(h)) ShowWindow(h, 9);
-        RECT r;
-        GetWindowRect(h, out r);
-        int width = Math.Max(1, Math.Min(r.R - r.L, 4096)), hgt = Math.Max(1, Math.Min(r.B - r.T, 4096));
-        using (var bmp = new Bitmap(width, hgt, PixelFormat.Format24bppRgb))
-        {
-            using (var g = Graphics.FromImage(bmp))
-            {
-                if (useScreen)
-                {
-                    SetForegroundWindow(h);
-                    Thread.Sleep(80);
-                    g.CopyFromScreen(r.L, r.T, 0, 0, new Size(width, hgt), CopyPixelOperation.SourceCopy);
-                }
-                else
-                {
-                    IntPtr hdc = g.GetHdc();
-                    PrintWindow(h, hdc, PW_RENDERFULLCONTENT);
-                    g.ReleaseHdc(hdc);
-                }
-            }
-            using (var ms = new MemoryStream())
-            {
-                var enc = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
-                var prm = new EncoderParameters(1);
-                prm.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 88L);
-                bmp.Save(ms, enc, prm);
-                EmitCmd("{\"type\":\"shot\",\"width\":" + width + ",\"height\":" + hgt + ",\"title\":" + Json(Title(h)) + ",\"jpeg\":\"" + Convert.ToBase64String(ms.ToArray()) + "\"}");
-            }
-        }
     }
 
     static void CaptureLoop()
@@ -603,7 +381,6 @@ public static class WinMirror
     {
         IntPtr h; POINT c, s;
         if (!Target(x, y, out h, out c, out s)) return;
-        if (IsProtectedWindow(h)) return;
         IntPtr lp = Pack(c.X, c.Y);
         int buttons = button == 0 ? 1 : button == 2 ? 2 : button == 1 ? 0x10 : 0; // MK_LBUTTON / MK_RBUTTON / MK_MBUTTON
         lock (Gate) { if (held.Contains(16)) buttons |= 4; if (held.Contains(17)) buttons |= 8; } // MK_SHIFT / MK_CONTROL for shift- and ctrl-clicks
@@ -643,7 +420,7 @@ public static class WinMirror
     // Focuses the control in the middle of a window, which is the main content area in these apps.
     static void Focus(IntPtr top)
     {
-        if (!IsWindow(top) || IsProtectedWindow(top)) return;
+        if (!IsWindow(top)) return;
         RECT r;
         GetWindowRect(top, out r);
         IntPtr h = top;
@@ -661,7 +438,7 @@ public static class WinMirror
     // Keyboard input goes to the focused control of the app's thread, so set focus there without activating the app.
     static void GiveFocus(IntPtr h)
     {
-        if (h == IntPtr.Zero || !IsWindow(h) || IsProtectedWindow(h)) return;
+        if (h == IntPtr.Zero || !IsWindow(h)) return;
         IntPtr top = GetAncestor(h, 2); // GA_ROOT
         if (top != IntPtr.Zero) PostMessage(top, 0x0006, (IntPtr)1, IntPtr.Zero); // WM_ACTIVATE(WA_ACTIVE)
         PostMessage(h, 0x0007, IntPtr.Zero, IntPtr.Zero); // WM_SETFOCUS for Chromium/CEF/wxWidgets in background
@@ -677,7 +454,7 @@ public static class WinMirror
     static void SendChar(int cp)
     {
         IntPtr h = focusTarget;
-        if (h == IntPtr.Zero || !IsWindow(h) || IsProtectedWindow(h)) return;
+        if (h == IntPtr.Zero || !IsWindow(h)) return;
         GiveFocus(h);
         PostMessage(h, 0x0102, (IntPtr)cp, (IntPtr)1); // WM_CHAR
         lock (Gate) forceFrame = true;
@@ -690,7 +467,7 @@ public static class WinMirror
     static void Key(bool down, int vk)
     {
         IntPtr h = focusTarget;
-        if (h == IntPtr.Zero || !IsWindow(h) || IsProtectedWindow(h)) return;
+        if (h == IntPtr.Zero || !IsWindow(h)) return;
         bool alt, repeat;
         lock (Gate)
         {
@@ -764,28 +541,12 @@ public static class WinMirror
     }
 
     static readonly object OutGate = new object();
-    static void EmitAck()
-    {
-        EmitCmd("{\"type\":\"ack\"}");
-    }
-
-    static void EmitCmd(string json)
-    {
-        string dir = Path.Combine(Path.GetTempPath(), "eide-m9");
-        try { File.WriteAllText(Path.Combine(dir, "wm_out.json"), json, Encoding.UTF8); } catch { }
-        Emit(json);
-    }
     static void Emit(string json)
     {
         lock (OutGate)
         {
             Console.Out.Write(json + "\n");
             Console.Out.Flush();
-            if (lastOutFile != null && !json.StartsWith("{\"type\":\"frame\"") && !json.StartsWith("{\"type\":\"gone\""))
-            {
-                try { File.WriteAllText(lastOutFile, json, Encoding.UTF8); } catch { }
-                lastOutFile = null;
-            }
         }
     }
 

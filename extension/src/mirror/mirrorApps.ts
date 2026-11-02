@@ -103,27 +103,10 @@ export function findAppExecutable(
   return app.candidates(env).find((p) => exists(p));
 }
 
-/** Never attach to, type into, or close the user's own open MATLAB/Simulink or KiCad sessions. */
-export function isProtectedUserWindow(title: string): boolean {
-  return /Zero_Perturb_MPPT_Live|Scope_EKF_Tcell|kcad_workshop/i.test(title || '');
-}
-
-/** PIDs that own any protected user window and must not be touched by E-IDE. */
-export function protectedUserPids(windows: AppWindow[]): Set<number> {
-  return new Set(windows.filter((w) => isProtectedUserWindow(w.title)).map((w) => w.pid));
-}
-
 /** The processes whose windows make up the app (MATLAB runs Simulink and scopes in more than one). */
-export function appPids(app: MirrorApp, windows: AppWindow[], includeProtected = false): number[] {
+export function appPids(app: MirrorApp, windows: AppWindow[]): number[] {
   const names = app.processes.map((p) => p.toLowerCase());
-  const excluded = includeProtected ? new Set<number>() : protectedUserPids(windows);
-  return [
-    ...new Set(
-      windows
-        .filter((w) => names.includes(w.process.toLowerCase()) && !excluded.has(w.pid))
-        .map((w) => w.pid)
-    ),
-  ];
+  return [...new Set(windows.filter((w) => names.includes(w.process.toLowerCase())).map((w) => w.pid))];
 }
 
 /** KiCad opens schematics and boards in their own editors rather than in the project manager. */

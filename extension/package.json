@@ -198,7 +198,7 @@
             "title": "1. Check apps",
             "description": "Check which of MATLAB, KiCad, LTspice, and Arduino IDE are installed on your machine, with direct links to install any missing tools.\n\n[Check Installed Apps](command:eide.apps.checkStatus)\n\nOfficial downloads: [MATLAB](https://www.mathworks.com/downloads/) · [KiCad](https://www.kicad.org/download/windows/) · [LTspice](https://www.analog.com/en/resources/design-tools-and-calculators/ltspice-simulator.html) · [Arduino IDE](https://www.arduino.cc/en/software)",
             "media": {
-              "image": "media/walkthrough/step1-apps.png",
+              "svg": "media/walkthrough/step1-apps.svg",
               "altText": "EEE Apps sidebar showing installed and running desktop apps"
             },
             "completionEvents": [
@@ -212,7 +212,7 @@
             "title": "2. Open a sample model inside the IDE",
             "description": "Open a Simulink model (.slx), MATLAB script (.m), KiCad schematic/PCB (.kicad_sch, .kicad_pcb), LTspice circuit (.asc), or Arduino sketch (.ino) live inside an E-IDE editor tab.\n\n[Open Desktop App Inside IDE](command:eide.apps.open)",
             "media": {
-              "image": "media/walkthrough/step2-sample.png",
+              "svg": "media/walkthrough/step2-sample.svg",
               "altText": "Desktop EEE model open live inside an E-IDE tab"
             },
             "completionEvents": [
@@ -225,7 +225,7 @@
             "title": "3. Let the agent drive an app",
             "description": "E-IDE automatically registers its MCP server so your AI agent can inspect live desktop windows, click controls, type commands, edit files, and reload them in place.\n\n[Copy MCP Config](command:eide.copyMcpConfig)",
             "media": {
-              "image": "media/walkthrough/step3-agent.png",
+              "svg": "media/walkthrough/step3-agent.svg",
               "altText": "AI agent driving desktop EEE apps through E-IDE MCP tools"
             },
             "completionEvents": [
@@ -237,7 +237,7 @@
             "title": "4. Set custom app paths",
             "description": "If MATLAB, KiCad, LTspice, or Arduino IDE is installed in a custom location, point E-IDE to its executable path in Settings.\n\n[Set Custom App Paths](command:eide.apps.configurePaths)",
             "media": {
-              "image": "media/walkthrough/step4-paths.png",
+              "svg": "media/walkthrough/step4-paths.svg",
               "altText": "Custom executable path settings for E-IDE apps"
             },
             "completionEvents": [

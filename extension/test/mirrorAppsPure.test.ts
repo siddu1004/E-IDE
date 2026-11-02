@@ -10,10 +10,8 @@ import {
   AppWindow,
   findAppExecutable,
   getMirrorApp,
-  isProtectedUserWindow,
   launchArgs,
   MIRROR_APPS,
-  protectedUserPids,
 } from '../src/mirror/mirrorApps';
 import {
   computeAppStatus,
@@ -128,29 +126,6 @@ describe('Mirror Status and Formatting Helpers', () => {
 
     assert.equal(status.running, true);
     assert.deepEqual(status.pids, [5000]);
-  });
-
-  it('protects user MATLAB (Zero_Perturb_MPPT_Live) and KiCad (kcad_workshop) sessions', () => {
-    assert.equal(isProtectedUserWindow('Zero_Perturb_MPPT_Live - Simulink academic use'), true);
-    assert.equal(isProtectedUserWindow('kcad_workshop — KiCad 10.0'), true);
-    assert.equal(isProtectedUserWindow('rc_circuit - Simulink'), false);
-    assert.equal(isProtectedUserWindow('rc_filter — Schematic Editor'), false);
-
-    const matlab = getMirrorApp('matlab')!;
-    const kicad = getMirrorApp('kicad')!;
-    const wins: AppWindow[] = [
-      { hwnd: 1, pid: 22632, process: 'MATLAB', title: 'MATLAB R2026a' },
-      { hwnd: 2, pid: 22632, process: 'MATLAB', title: 'Zero_Perturb_MPPT_Live - Simulink academic use' },
-      { hwnd: 3, pid: 90001, process: 'MATLAB', title: 'rc_circuit - Simulink' },
-      { hwnd: 4, pid: 55204, process: 'kicad', title: 'kcad_workshop — KiCad 10.0' },
-      { hwnd: 5, pid: 90002, process: 'eeschema', title: 'rc_filter — Schematic Editor' },
-    ];
-
-    assert.deepEqual([...protectedUserPids(wins)].sort(), [22632, 55204]);
-    assert.deepEqual(appPids(matlab, wins, false), [90001]);
-    assert.deepEqual(appPids(matlab, wins, true), [22632, 90001]);
-    assert.deepEqual(appPids(kicad, wins, false), [90002]);
-    assert.deepEqual(appPids(kicad, wins, true), [55204, 90002]);
   });
 
   it('formats mirror header statuses and checks getting started prompt condition', () => {
