@@ -602,8 +602,58 @@ export class EidMcpServer {
     mcp.tool(
       'captureDesktopApp',
       'See a desktop app: returns a picture of all its windows as the user sees them in the E-IDE tab.',
-      { app: z.enum(appIds).describe('Which app') },
-      async ({ app }) => frameContent(await mirror().capture(app), 'Current view.')
+      {
+        app: z.enum(appIds).describe('Which app'),
+        target: z.enum(['app', 'ide']).optional().default('app').describe('Capture app frame or full IDE window'),
+        focusWindow: z.string().optional().describe('Optional window title to focus before capture'),
+        fitWidth: z.number().optional().describe('Optional width to fit main window to'),
+        fitHeight: z.number().optional().describe('Optional height to fit main window to'),
+        action: z.enum(['reload', 'popout', 'minimize', 'restore', 'closeTab', 'confirmReload', 'helperInfo', 'themeLight', 'themeDark', 'openWalkthrough']).optional(),
+      },
+      async ({ app, target, focusWindow, fitWidth, fitHeight, action }) => {
+        if (action === 'helperInfo') {
+          return { content: [{ type: 'text', text: JSON.stringify(mirror().getHelperInfo(app), null, 2) }] };
+        }
+        if (action === 'closeTab') {
+          const res = await mirror().closeTab(app);
+          return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+        }
+        if (action === 'minimize' || action === 'restore') {
+          const res = await mirror().minimize(app, action === 'restore');
+          return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+        }
+        if (action === 'popout') {
+          await mirror().popOut(app);
+        }
+        if (action === 'reload') {
+          await mirror().reload(app);
+        }
+        if (action === 'confirmReload') {
+          await vscode.commands.executeCommand('eide.apps.confirmReload');
+        }
+        if (action === 'themeLight') {
+          await vscode.workspace.getConfiguration('workbench').update('colorTheme', 'Default Light Modern', vscode.ConfigurationTarget.Global);
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        if (action === 'themeDark') {
+          await vscode.workspace.getConfiguration('workbench').update('colorTheme', 'Default Dark Modern', vscode.ConfigurationTarget.Global);
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        if (action === 'openWalkthrough') {
+          await vscode.commands.executeCommand('workbench.action.openWalkthrough', 'siddu1004.e-ide#eide.gettingStarted', false);
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        if (focusWindow) {
+          await mirror().focusWindow(app, focusWindow);
+        }
+        if (fitWidth && fitHeight) {
+          return frameContent(await mirror().fit(app, fitWidth, fitHeight), 'After fit.');
+        }
+        if (target === 'ide') {
+          return frameContent(await mirror().captureIdeWindow(), 'IDE window.');
+        }
+        return frameContent(await mirror().capture(app), 'Current view.');
+      }
     );
 
     mcp.tool(
@@ -615,24 +665,26 @@ export class EidMcpServer {
         y: z.number().describe('Y pixel in the captured picture'),
         button: z.enum(['left', 'right']).optional().default('left'),
         double: z.boolean().optional().default(false).describe('Double-click'),
+        wheelDelta: z.number().optional().default(0).describe('Optional scroll wheel delta (e.g. 120 or -120)'),
       },
-      async ({ app, x, y, button, double }) => {
+      async ({ app, x, y, button, double, wheelDelta }) => {
         await tools.checkAgentApproval(app, `${double ? 'double-click' : 'click'} at (${Math.round(x)}, ${Math.round(y)})`);
-        return frameContent(await mirror().click(app, x, y, button === 'right' ? 2 : 0, double), 'After click.');
+        return frameContent(await mirror().click(app, x, y, button === 'right' ? 2 : 0, double, wheelDelta), 'After click.');
       }
     );
 
     mcp.tool(
       'typeInDesktopApp',
-      'Type text into the control of a desktop app that was last clicked (for example the MATLAB Command Window). Returns the picture afterwards.',
+      'Type text or press key combinations into the control of a desktop app that was last clicked (for example the MATLAB Command Window). Returns the picture afterwards.',
       {
         app: z.enum(appIds).describe('Which app'),
-        text: z.string().max(2000).describe('Text to type'),
+        text: z.string().max(2000).optional().default('').describe('Text to type'),
         pressEnter: z.boolean().optional().default(false),
+        key: z.string().optional().describe('Optional key or shortcut (e.g. Ctrl+S, Ctrl+Z, F5, Escape, A)'),
       },
-      async ({ app, text, pressEnter }) => {
-        await tools.checkAgentApproval(app, `type "${text.slice(0, 60)}"${pressEnter ? ' and press Enter' : ''}`);
-        return frameContent(await mirror().type(app, text, pressEnter), 'After typing.');
+      async ({ app, text, pressEnter, key }) => {
+        await tools.checkAgentApproval(app, `type "${text.slice(0, 60)}"${key ? ` key ${key}` : ''}${pressEnter ? ' and press Enter' : ''}`);
+        return frameContent(await mirror().type(app, text, pressEnter, key), 'After typing.');
       }
     );
 

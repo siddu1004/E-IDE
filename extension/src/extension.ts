@@ -12,6 +12,8 @@ import { MatlabScriptRunner } from './matlab/matlabScriptRunner';
 import { SlxEditorProvider } from './simulink/slxEditorProvider';
 import { ArduinoController } from './arduino/arduinoController';
 import { AppMirrorController, setAppMirror } from './mirror/appMirror';
+import { findAppExecutable, MIRROR_APPS } from './mirror/mirrorApps';
+import { shouldPromptGettingStarted } from './mirror/mirrorStatus';
 import { MirrorAppsProvider } from './mirror/mirrorView';
 import { AppFileWatcher } from './mirror/appWatcher';
 
@@ -68,6 +70,30 @@ export function activate(context: vscode.ExtensionContext) {
   // 3d. Watch files opened in mirrored apps for agent changes
   const appWatcher = new AppFileWatcher(context, appMirror);
   context.subscriptions.push(appWatcher);
+
+  // 3e. On first activation, if no app is installed, offer Getting Started walkthrough
+  const alreadyPrompted = context.globalState.get<boolean>('eide.gettingStartedPrompted', false);
+  const initialStatuses = MIRROR_APPS.map((app) => {
+    const custom = vscode.workspace.getConfiguration('eide.apps').get<string>(`${app.id}Path`);
+    return { installed: !!findAppExecutable(app, custom || undefined) };
+  });
+  if (shouldPromptGettingStarted(alreadyPrompted, initialStatuses)) {
+    context.globalState.update('eide.gettingStartedPrompted', true);
+    vscode.window
+      .showInformationMessage(
+        'E-IDE: No desktop EEE apps (MATLAB, KiCad, LTspice, Arduino IDE) were detected yet.',
+        'Open Getting Started'
+      )
+      .then((choice) => {
+        if (choice === 'Open Getting Started') {
+          vscode.commands.executeCommand(
+            'workbench.action.openWalkthrough',
+            'siddu1004.e-ide#eide.gettingStarted',
+            false
+          );
+        }
+      });
+  }
 
   // 4. MCP Server inside extension
   const mcpServer = new EidMcpServer(context);
@@ -240,6 +266,32 @@ export function activate(context: vscode.ExtensionContext) {
       if (targetPath) {
         await undoAgentChange(targetPath);
       }
+    }),
+    vscode.commands.registerCommand('eide.apps.checkStatus', async () => {
+      const items = MIRROR_APPS.map((app) => {
+        const custom = vscode.workspace.getConfiguration('eide.apps').get<string>(`${app.id}Path`);
+        const exe = findAppExecutable(app, custom || undefined);
+        return {
+          label: `${exe ? '$(check)' : '$(cloud-download)'} ${app.label}`,
+          description: exe ? 'Installed' : 'Not installed — click to download',
+          detail: exe || app.installUrl,
+          app,
+          installed: !!exe,
+        };
+      });
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: 'EEE Desktop Apps Status (select an app to open or install)',
+      });
+      if (pick) {
+        if (pick.installed) {
+          await vscode.commands.executeCommand('eide.apps.open', pick.app.id);
+        } else {
+          vscode.env.openExternal(vscode.Uri.parse(pick.app.installUrl));
+        }
+      }
+    }),
+    vscode.commands.registerCommand('eide.apps.configurePaths', async () => {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'eide.apps.');
     })
   );
 }

@@ -4,6 +4,7 @@
   "description": "Visual editors for LTspice, KiCad, and Simulink files, with live agent edits.",
   "version": "0.0.1",
   "publisher": "siddu1004",
+  "icon": "media/icon.png",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
@@ -159,6 +160,95 @@
         "command": "eide.apps.installApp",
         "title": "E-IDE: Install Desktop App",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "eide.apps.focusWindow",
+        "title": "E-IDE: Focus Desktop App Window",
+        "icon": "$(window)"
+      },
+      {
+        "command": "eide.apps.popOut",
+        "title": "E-IDE: Pop Out Desktop App to Real Window",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "eide.apps.checkStatus",
+        "title": "E-IDE: Check Installed EEE Apps",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "eide.apps.configurePaths",
+        "title": "E-IDE: Set Custom App Paths",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "eide.apps.confirmReload",
+        "title": "E-IDE: Confirm Reload in Desktop App",
+        "icon": "$(refresh)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "eide.gettingStarted",
+        "title": "Get started with E-IDE",
+        "description": "Work with MATLAB/Simulink, KiCad, LTspice, and Arduino IDE live inside E-IDE tabs, driven by AI agents.",
+        "steps": [
+          {
+            "id": "checkApps",
+            "title": "1. Check apps",
+            "description": "Check which of MATLAB, KiCad, LTspice, and Arduino IDE are installed on your machine, with direct links to install any missing tools.\n\n[Check Installed Apps](command:eide.apps.checkStatus)\n\nOfficial downloads: [MATLAB](https://www.mathworks.com/downloads/) · [KiCad](https://www.kicad.org/download/windows/) · [LTspice](https://www.analog.com/en/resources/design-tools-and-calculators/ltspice-simulator.html) · [Arduino IDE](https://www.arduino.cc/en/software)",
+            "media": {
+              "image": "media/walkthrough/step1-apps.png",
+              "altText": "EEE Apps sidebar showing installed and running desktop apps"
+            },
+            "completionEvents": [
+              "onCommand:eide.apps.checkStatus",
+              "onCommand:eide.apps.refresh",
+              "onView:eide.appsView"
+            ]
+          },
+          {
+            "id": "openSample",
+            "title": "2. Open a sample model inside the IDE",
+            "description": "Open a Simulink model (.slx), MATLAB script (.m), KiCad schematic/PCB (.kicad_sch, .kicad_pcb), LTspice circuit (.asc), or Arduino sketch (.ino) live inside an E-IDE editor tab.\n\n[Open Desktop App Inside IDE](command:eide.apps.open)",
+            "media": {
+              "image": "media/walkthrough/step2-sample.png",
+              "altText": "Desktop EEE model open live inside an E-IDE tab"
+            },
+            "completionEvents": [
+              "onCommand:eide.apps.open",
+              "onCommand:eide.apps.openFile"
+            ]
+          },
+          {
+            "id": "agentDrive",
+            "title": "3. Let the agent drive an app",
+            "description": "E-IDE automatically registers its MCP server so your AI agent can inspect live desktop windows, click controls, type commands, edit files, and reload them in place.\n\n[Copy MCP Config](command:eide.copyMcpConfig)",
+            "media": {
+              "image": "media/walkthrough/step3-agent.png",
+              "altText": "AI agent driving desktop EEE apps through E-IDE MCP tools"
+            },
+            "completionEvents": [
+              "onCommand:eide.copyMcpConfig"
+            ]
+          },
+          {
+            "id": "customPaths",
+            "title": "4. Set custom app paths",
+            "description": "If MATLAB, KiCad, LTspice, or Arduino IDE is installed in a custom location, point E-IDE to its executable path in Settings.\n\n[Set Custom App Paths](command:eide.apps.configurePaths)",
+            "media": {
+              "image": "media/walkthrough/step4-paths.png",
+              "altText": "Custom executable path settings for E-IDE apps"
+            },
+            "completionEvents": [
+              "onCommand:eide.apps.configurePaths",
+              "onSettingChanged:eide.apps.matlabPath",
+              "onSettingChanged:eide.apps.kicadPath",
+              "onSettingChanged:eide.apps.ltspicePath",
+              "onSettingChanged:eide.apps.arduinoPath"
+            ]
+          }
+        ]
       }
     ],
     "menus": {
@@ -190,7 +280,7 @@
         },
         {
           "command": "eide.apps.openFile",
-          "when": "resourceExtname =~ /^\\.(slx|mdl|kicad_sch|kicad_pcb|asc)$/",
+          "when": "resourceExtname =~ /^\\.(slx|mdl|m|mlx|kicad_sch|kicad_pcb|asc|ino)$/",
           "group": "navigation@9"
         }
       ],

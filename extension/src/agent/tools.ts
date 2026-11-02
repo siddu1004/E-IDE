@@ -15,6 +15,7 @@ import { findLtspice, runLtspiceSimulation, SimulationRunResult } from '../ltspi
 import { BridgeStatus, MatlabBridge, ScriptRunResult, SimulateResult } from '../matlab/matlabBridge';
 import { parseSlx, SlxModel } from '../simulink/slxParser';
 import { AgentHistoryManager } from './agentHistory';
+import { AppFileWatcher } from '../mirror/appWatcher';
 import { TestHook } from '../testHook';
 import {
   CompactSimulationSummary,
@@ -104,7 +105,11 @@ export function assertPathInWorkspace(filePath: string): string {
     const rel = path.relative(root, normResolved);
     return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
   });
-  if (!isInWorkspace) {
+  const m9Root = path.normalize(real(path.join(os.tmpdir(), 'eide-m9'))).toLowerCase();
+  const relM9 = path.relative(m9Root, normResolved);
+  const isInM9Temp = relM9 !== '..' && !relM9.startsWith('..' + path.sep) && !path.isAbsolute(relM9);
+  const isWatched = AppFileWatcher.getInstance()?.isWatching(resolved) ?? false;
+  if (!isInWorkspace && !isInM9Temp && !isWatched) {
     throw new Error(`Security violation: file path '${filePath}' is outside the open workspace folders.`);
   }
   return resolved;
@@ -254,6 +259,8 @@ export async function setComponentValue(
   }
 
   await doc.save();
+  historyMgr.markAgentEditing(resolved);
+  AppFileWatcher.getInstance()?.handleFileChange(resolved).catch(() => {});
 
   if (skipResimulate) {
     return { success: true };
@@ -409,6 +416,8 @@ export async function setKicadProperty(
   }
 
   await doc.save();
+  historyMgr.markAgentEditing(resolved);
+  AppFileWatcher.getInstance()?.handleFileChange(resolved).catch(() => {});
 
   if (skipResimulate) {
     return { success: true };
@@ -572,6 +581,8 @@ export async function setBlockParam(
   }
 
   const res = await bridge.setParam(resolved, block, param, value);
+  historyMgr.markAgentEditing(resolved);
+  AppFileWatcher.getInstance()?.handleFileChange(resolved).catch(() => {});
 
   // Update open webview
   const buf = await readFileWithRetry(resolved);
