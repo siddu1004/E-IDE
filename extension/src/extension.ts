@@ -7,6 +7,8 @@ import { exportSpiceNetlist, findKicadCli } from './kicad/kicadCli';
 import { KicadEditorProvider } from './kicad/schEditorProvider';
 import { AscEditorProvider } from './ltspice/ascEditorProvider';
 import { MatlabBridge, BridgeStatus } from './matlab/matlabBridge';
+import { MatlabCommandWindowPanel } from './matlab/matlabCommandWindow';
+import { MatlabFiguresPanel } from './matlab/matlabFiguresPanel';
 import { findMatlab } from './matlab/matlabFinder';
 import { MatlabScriptRunner } from './matlab/matlabScriptRunner';
 import { SlxEditorProvider } from './simulink/slxEditorProvider';
@@ -174,6 +176,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand('eide.runMatlabScript', async (uri?: vscode.Uri) => {
       await scriptRunner.runScript(uri);
+    }),
+    vscode.commands.registerCommand('eide.openMatlabCommandWindow', () => {
+      MatlabCommandWindowPanel.createOrShow(context.extensionUri, bridge);
+    }),
+    vscode.commands.registerCommand('eide.showMatlabFigures', () => {
+      MatlabFiguresPanel.createOrShow(context.extensionUri).reveal();
     }),
     vscode.commands.registerCommand('eide.simulateSimulink', async () => {
       if (SlxEditorProvider.activeEditor) {

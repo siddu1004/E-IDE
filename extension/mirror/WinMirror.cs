@@ -214,7 +214,7 @@ public static class WinMirror
             var started = DateTime.UtcNow;
             try { CaptureOnce(); } catch (Exception e) { Console.Error.WriteLine(e.Message); }
             int spent = (int)(DateTime.UtcNow - started).TotalMilliseconds;
-            Thread.Sleep(Math.Max(15, 80 - spent)); // about 12 frames a second
+            Thread.Sleep(Math.Max(10, 33 - spent)); // ~30 frames a second for smooth live mirroring
         }
     }
 
@@ -307,7 +307,7 @@ public static class WinMirror
             {
                 var enc = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
                 var prm = new EncoderParameters(1);
-                prm.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 82L);
+                prm.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 72L);
                 frame.Save(ms, enc, prm);
                 Emit("{\"type\":\"frame\",\"width\":" + width + ",\"height\":" + height + ",\"title\":" + Json(Title(placed[mainIdx].Key)) + ",\"jpeg\":\"" + Convert.ToBase64String(ms.ToArray()) + "\"}");
             }

@@ -112,7 +112,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
     });
     panel.onDidDispose(unbindStatus);
 
-    const pushModel = (changesOverride?: any) => {
+    const pushModel = async (changesOverride?: any) => {
       if (isDisposed) return;
       try {
         if (!fs.existsSync(fsPath)) return;
@@ -135,8 +135,7 @@ export class SlxEditorProvider implements vscode.CustomReadonlyEditorProvider<Sl
             }
           } catch (e) {
             lastErr = e;
-            const end = Date.now() + 100;
-            while (Date.now() < end) {}
+            await new Promise((r) => setTimeout(r, 20));
           }
         }
 

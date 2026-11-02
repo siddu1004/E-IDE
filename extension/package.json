@@ -94,7 +94,18 @@
       },
       {
         "command": "eide.runMatlabScript",
-        "title": "E-IDE: Run MATLAB Script"
+        "title": "E-IDE: Run MATLAB Script",
+        "icon": "$(play)"
+      },
+      {
+        "command": "eide.openMatlabCommandWindow",
+        "title": "E-IDE: Open MATLAB Command Window (In-IDE)",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "eide.showMatlabFigures",
+        "title": "E-IDE: Show MATLAB Figures",
+        "icon": "$(graph)"
       },
       {
         "command": "eide.simulateSimulink",
@@ -253,6 +264,21 @@
     ],
     "menus": {
       "editor/title": [
+        {
+          "command": "eide.runMatlabScript",
+          "when": "resourceExtname == .m",
+          "group": "navigation@1"
+        },
+        {
+          "command": "eide.openMatlabCommandWindow",
+          "when": "resourceExtname =~ /^\\.(m|mlx|slx)$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "eide.showMatlabFigures",
+          "when": "resourceExtname =~ /^\\.(m|mlx|slx)$/",
+          "group": "navigation@3"
+        },
         {
           "command": "eide.arduino.verify",
           "when": "resourceExtname == .ino",

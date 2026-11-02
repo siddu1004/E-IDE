@@ -188,8 +188,24 @@ export class AppMirrorController implements vscode.Disposable {
       }),
       vscode.commands.registerCommand('eide.apps.openFile', async (uri?: vscode.Uri) => {
         const file = uri?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
-        const app = file ? appForFile(file) : undefined;
-        if (!file || !app) {
+        if (!file) {
+          vscode.window.showWarningMessage('E-IDE: No file selected.');
+          return;
+        }
+        const ext = path.extname(file).toLowerCase();
+        if (ext === '.slx' || ext === '.mdl') {
+          // Open inside the IDE via E-IDE's internal Simulink editor without opening real window
+          await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(file), 'eide.simulinkModel');
+          return;
+        }
+        if (ext === '.m' || ext === '.mlx') {
+          // Open inside the IDE without opening real window
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+          await vscode.window.showTextDocument(doc);
+          return;
+        }
+        const app = appForFile(file);
+        if (!app) {
           vscode.window.showWarningMessage('E-IDE: No desktop app is known for this file type.');
           return;
         }
@@ -462,7 +478,7 @@ export class AppMirrorController implements vscode.Disposable {
         session.send(`mouse dbl ${at} 0`);
       }
     }
-    await new Promise((r) => setTimeout(r, 700));
+    await new Promise((r) => setTimeout(r, 150));
     return session.snapshot();
   }
 
@@ -478,14 +494,14 @@ export class AppMirrorController implements vscode.Disposable {
       session.send('key down 13');
       session.send('key up 13');
     }
-    await new Promise((r) => setTimeout(r, 700));
+    await new Promise((r) => setTimeout(r, 150));
     return session.snapshot();
   }
 
   async hotkey(appId: string, keys: string): Promise<MirrorFrame> {
     const { session } = await this.ensure(appId);
     this.sendKeyCombo(session, keys);
-    await new Promise((r) => setTimeout(r, 700));
+    await new Promise((r) => setTimeout(r, 150));
     return session.snapshot();
   }
 
@@ -546,7 +562,7 @@ export class AppMirrorController implements vscode.Disposable {
         }
         break;
     }
-    setTimeout(() => s.send('snap'), 500);
+    setTimeout(() => s.send('snap'), 100);
   }
 
   private sendKeyCombo(session: MirrorSession, combo: string): void {

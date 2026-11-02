@@ -47,6 +47,10 @@ export class MatlabFiguresPanel {
     this.panel.webview.html = this.getHtml();
   }
 
+  public reveal(): void {
+    this.panel.reveal();
+  }
+
   public updateFigures(newFigures: string[]) {
     // Keep previous set one step back for comparison
     this.previousFigures = [...this.currentFigures];

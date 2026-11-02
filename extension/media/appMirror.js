@@ -135,7 +135,7 @@
         width: Math.round(stage.clientWidth * ratio),
         height: Math.round(stage.clientHeight * ratio),
       });
-    }, 400);
+    }, 100);
   }
   fitToggle.addEventListener('change', () => {
     vscode.setState(Object.assign({}, vscode.getState(), { fit: fitToggle.checked }));

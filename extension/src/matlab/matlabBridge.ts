@@ -4,7 +4,9 @@
 
 import * as child_process from 'child_process';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as net from 'net';
+import * as os from 'os';
 import * as path from 'path';
 
 export type BridgeStatus = 'off' | 'starting' | 'ready' | 'busy';
@@ -232,7 +234,7 @@ export class MatlabBridge {
         break;
       } catch {
         // Sleep 500ms before retry
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 150));
       }
     }
 
@@ -378,6 +380,22 @@ export class MatlabBridge {
 
   public async ping(): Promise<string> {
     return this.sendCommand<string>('ping');
+  }
+
+  public async evalCommand(command: string, exportDir?: string): Promise<ScriptRunResult> {
+    const tmpDir = path.join(os.tmpdir(), 'eide_matlab_eval');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    const tmpFile = path.join(tmpDir, `eval_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.m`);
+    fs.writeFileSync(tmpFile, command, 'utf8');
+    try {
+      return await this.runScript(tmpFile, exportDir);
+    } finally {
+      try {
+        if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      } catch {}
+    }
   }
 
   public async runScript(scriptPath: string, exportDir?: string): Promise<ScriptRunResult> {
